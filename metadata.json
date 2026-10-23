@@ -1,0 +1,6 @@
+{
+  "name": "Dhanam AI",
+  "description": "AI-powered Telugu & English expense tracker, budget analyzer, lending khata manager, and monthly PDF reporter with biometric security.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

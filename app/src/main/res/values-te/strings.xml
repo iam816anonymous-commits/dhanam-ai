@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Dhanam AI</string>
+    <string name="nav_agent">వాయిస్ ఏజెంట్</string>
+    <string name="nav_expenses">ఖర్చులు</string>
+    <string name="nav_lending">అప్పుల ఖాటా</string>
+    <string name="nav_insights">విశ్లేషణ</string>
+    <string name="nav_settings">సెట్టింగ్స్</string>
+    <string name="voice_listening">వింటున్నాను… మాట్లాడండి</string>
+    <string name="voice_mic_tooltip">ఖర్చు లేదా అప్పు వివరాలను మాట్లాడండి</string>
+    <string name="voice_switch_lang">భాష మార్చండి</string>
+    <string name="biometric_title">Dhanam AI అన్‌లాక్ చేయండి</string>
+    <string name="biometric_subtitle">ఫింగర్‌ప్రింట్ సెన్సార్‌ను తాకండి</string>
+    <string name="security_settings">భద్రత &amp; అనుమతులు</string>
+    <string name="clear_data">అన్ని రికార్డులను క్లియర్ చేయండి</string>
+</resources>

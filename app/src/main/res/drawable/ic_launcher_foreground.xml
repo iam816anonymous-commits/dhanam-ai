@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer rounded badge -->
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M32,24 h44 a14,14 0 0 1 14,14 v44 a14,14 0 0 1 -14,14 h-44 a14,14 0 0 1 -14,-14 v-44 a14,14 0 0 1 14,-14 Z" />
+
+    <!-- Radiant border -->
+    <path
+        android:strokeColor="#10B981"
+        android:strokeWidth="2.5"
+        android:pathData="M32,24 h44 a14,14 0 0 1 14,14 v44 a14,14 0 0 1 -14,14 h-44 a14,14 0 0 1 -14,-14 v-44 a14,14 0 0 1 14,-14 Z" />
+
+    <!-- Indian Rupee Symbol in Gold -->
+    <!-- Top horizontal bar -->
+    <path
+        android:fillColor="#FBBF24"
+        android:pathData="M40,36 h28 v4 h-28 Z" />
+
+    <!-- Second horizontal bar -->
+    <path
+        android:fillColor="#FBBF24"
+        android:pathData="M40,44 h24 v4 h-24 Z" />
+
+    <!-- Curved Rupee Head and Diagonal Leg -->
+    <path
+        android:fillColor="#FBBF24"
+        android:pathData="M48,36 v22 c0,0 12,0 12,-11 c0,-11 -12,-11 -12,-11 Z" />
+    <path
+        android:strokeColor="#FBBF24"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M49,56 L64,74" />
+    <path
+        android:strokeColor="#FBBF24"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M49,36 L49,74" />
+
+    <!-- AI Sparkle 4-point star in top-right -->
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M78,30 Q78,35 83,35 Q78,35 78,40 Q78,35 73,35 Q78,35 78,30 Z" />
+
+    <!-- Small AI Sparkle in bottom-left -->
+    <path
+        android:fillColor="#6EE7B7"
+        android:pathData="M31,68 Q31,71 34,71 Q31,71 31,74 Q31,71 28,71 Q31,71 31,68 Z" />
+</vector>
