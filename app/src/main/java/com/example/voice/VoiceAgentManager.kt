@@ -549,6 +549,17 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
             e.printStackTrace()
+            if (!hasRetriedClientFallback) {
+                hasRetriedClientFallback = true
+                try {
+                    speechRecognizer?.cancel()
+                    speechRecognizer?.destroy()
+                    speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+                    speechRecognizer?.setRecognitionListener(createRecognitionListener())
+                    startListeningInternal()
+                    return
+                } catch (_: Exception) {}
+            }
             _isListening.value = false
         }
     }

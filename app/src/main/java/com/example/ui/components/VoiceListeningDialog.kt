@@ -1,6 +1,8 @@
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -61,11 +63,13 @@ fun VoiceListeningDialog(
     rmsDb: Float,
     errorMessage: String?,
     isTeluguTtsAvailable: Boolean,
+    isEmulator: Boolean = false,
     onDismiss: () -> Unit,
     onRetryListening: () -> Unit,
     onSwitchLanguage: () -> Unit,
     onDoneListening: (() -> Unit)? = null,
-    onLaunchSystemVoice: (() -> Unit)? = null
+    onLaunchSystemVoice: (() -> Unit)? = null,
+    onSimulateVoice: ((String) -> Unit)? = null
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val ambientPulse by infiniteTransition.animateFloat(
@@ -134,11 +138,28 @@ fun VoiceListeningDialog(
                         }
                     }
 
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.testTag("voice_dialog_close")
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isEmulator) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
+                                modifier = Modifier.padding(end = 6.dp)
+                            ) {
+                                Text(
+                                    text = "🖥️ Virtual Mic",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.testTag("voice_dialog_close")
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Close")
+                        }
                     }
                 }
 
@@ -182,6 +203,63 @@ fun VoiceListeningDialog(
                             tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(36.dp)
                         )
+                    }
+                }
+
+                // Quick Voice Test Chips tray inside Universal Voice Dialog
+                if (onSimulateVoice != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = if (isTelugu) "💡 వర్చువల్ / త్వరిత వాయిస్ టెస్ట్ (ఏదైనా చిప్ నొక్కండి):"
+                        else "💡 Virtual / Quick Voice Test (Tap to simulate speech):",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Start
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val testChips = if (isTelugu) listOf(
+                            "🍵 టీ 20 మరియు సమోసా 30" to "టీ 20 మరియు సమోసా 30",
+                            "⛽ పెట్రోల్ 350 రూపాయలు" to "పెట్రోల్ 350 రూపాయలు",
+                            "🤝 రమేష్ కి 2000 అప్పు ఇచ్చాను" to "రమేష్ కి 2000 అప్పు ఇచ్చాను",
+                            "💵 రమేష్ 1000 తిరిగి ఇచ్చాడు" to "రమేష్ 1000 తిరిగి ఇచ్చాడు",
+                            "📅 నెల బడ్జెట్ 45000 గా పెట్టు" to "నెల బడ్జెట్ 45000 గా పెట్టు",
+                            "📊 ఈ రోజు ఎంత ఖర్చు చేశాను?" to "ఈ రోజు ఎంత ఖర్చు చేశాను?",
+                            "🛒 కూరగాయలు 250" to "కూరగాయలు 250 రూపాయలు"
+                        ) else listOf(
+                            "🍵 Tea 20 and Samosa 30" to "Tea 20 and samosa 30",
+                            "⛽ Petrol 350 rupees" to "Petrol 350 rupees",
+                            "🤝 Lent 2000 to Ramesh" to "Lent 2000 to Ramesh",
+                            "💵 Ramesh returned 1000" to "Ramesh returned 1000",
+                            "📅 Set monthly budget 45000" to "Set monthly budget to 45000",
+                            "📊 How much spent today?" to "How much did I spend today?",
+                            "🛒 Groceries 250" to "Groceries 250"
+                        )
+
+                        items(testChips) { (label, phrase) ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                                ),
+                                modifier = Modifier.clickable {
+                                    onSimulateVoice(phrase)
+                                }
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
                     }
                 }
 

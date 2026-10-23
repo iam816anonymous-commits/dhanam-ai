@@ -372,36 +372,39 @@ fun AgentScreen(
                     }
                 }
 
-                // If Listening: Provide Done & Cancel buttons + Quick Voice Test Chips
-                AnimatedVisibility(visible = isListening) {
+                // If Listening or Error or Virtual Device: Provide Done & Cancel buttons + Quick Voice Test Chips
+                AnimatedVisibility(visible = isListening || speechError != null || viewModel.voiceAgentManager.isEmulator()) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 10.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Button(
-                                onClick = { viewModel.submitVoiceListeningImmediately() },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
+                        if (isListening) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(if (isTelugu) "పూర్తయింది (Done)" else "Finish & Process", fontSize = 12.sp)
+                                Button(
+                                    onClick = { viewModel.submitVoiceListeningImmediately() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(if (isTelugu) "పూర్తయింది (Done)" else "Finish & Process", fontSize = 12.sp)
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.cancelVoiceListening() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(if (isTelugu) "రద్దు (Cancel)" else "Cancel", fontSize = 12.sp)
+                                }
                             }
-                            OutlinedButton(
-                                onClick = { viewModel.cancelVoiceListening() },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(if (isTelugu) "రద్దు (Cancel)" else "Cancel", fontSize = 12.sp)
-                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = if (isTelugu) "💡 వర్చువల్ / త్వరిత వాయిస్ టెస్ట్ (ఏదైనా చిప్ నొక్కండి):"
                             else "💡 Virtual / Quick Voice Test (Tap to simulate speech):",
