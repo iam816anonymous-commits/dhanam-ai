@@ -164,14 +164,11 @@ fun AgentScreen(
                 }
             },
             onError = { _ ->
-                // If device is online, attempt fallback dialog.
-                // If offline, do NOT launch Google online popup to avoid immediate "no connection" failure.
-                if (viewModel.voiceAgentManager.isOnline()) {
-                    try {
-                        val fallbackIntent = viewModel.voiceAgentManager.createFallbackRecognizerIntent(currentIsTelugu)
-                        speechLauncher.launch(fallbackIntent)
-                    } catch (_: Exception) {}
-                }
+                // Attempt system voice recognition activity regardless of online status so downloaded offline packs can transcribe
+                try {
+                    val fallbackIntent = viewModel.voiceAgentManager.createFallbackRecognizerIntent(currentIsTelugu)
+                    speechLauncher.launch(fallbackIntent)
+                } catch (_: Exception) {}
             }
         )
     }

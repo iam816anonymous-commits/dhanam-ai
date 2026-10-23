@@ -618,6 +618,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
     fun createFallbackRecognizerIntent(isTelugu: Boolean): Intent {
         return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
             if (!isOnline()) {
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             }
