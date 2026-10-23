@@ -403,6 +403,7 @@ fun MainAppScaffold(
                     rmsDb = rmsDb,
                     errorMessage = voiceErrorMessage,
                     isTeluguTtsAvailable = isTeluguTtsAvailable,
+                    isEmulator = viewModel.voiceAgentManager.isEmulator(),
                     onDismiss = {
                         viewModel.cancelVoiceListening()
                     },
@@ -419,6 +420,9 @@ fun MainAppScaffold(
                     },
                     onLaunchSystemVoice = {
                         (context as? MainActivity)?.launchSystemSpeechFallback()
+                    },
+                    onSimulateVoice = { phrase ->
+                        viewModel.voiceAgentManager.simulateVoiceInput(phrase)
                     }
                 )
             }
