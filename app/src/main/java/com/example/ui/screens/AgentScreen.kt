@@ -164,11 +164,7 @@ fun AgentScreen(
                 }
             },
             onError = { _ ->
-                // Attempt system voice recognition activity regardless of online status so downloaded offline packs can transcribe
-                try {
-                    val fallbackIntent = viewModel.voiceAgentManager.createFallbackRecognizerIntent(currentIsTelugu)
-                    speechLauncher.launch(fallbackIntent)
-                } catch (_: Exception) {}
+                // Handled gracefully in Jarvis card UI with Quick Voice chips and Settings button
             }
         )
     }
@@ -482,18 +478,19 @@ fun AgentScreen(
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.weight(1f)
                     )
-                    if (speechError?.contains("ఆఫ్‌లైన్") == true || speechError?.contains("Offline") == true) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        TextButton(
-                            onClick = { viewModel.voiceAgentManager.openOfflineSpeechSettings(context) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = if (isTelugu) "సెట్టింగ్స్" else "Settings",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    TextButton(
+                        onClick = {
+                            viewModel.clearVoiceError()
+                            launchVoiceRecognition()
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = if (isTelugu) "మళ్లీ మాట్లాడండి" else "Retry",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             }

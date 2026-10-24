@@ -73,9 +73,16 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
     private var cachedHindiVoice: Voice? = null
     private var cachedKannadaVoice: Voice? = null
 
+    private val _voiceLanguage = MutableStateFlow("te")
+    val voiceLanguage: StateFlow<String> = _voiceLanguage.asStateFlow()
+
+    // Centralized VoiceStateManager managing ConnectivityManager state & engine switching
+    val voiceStateManager = VoiceStateManager(context)
+
+    private var activeLanguageCode = "te" // "te", "en", "hi"
+    private var activeLanguageIsTelugu = true
     private var currentResultCallback: ((String) -> Unit)? = null
     private var currentErrorCallback: ((String) -> Unit)? = null
-    private var activeLanguageIsTelugu = false
     private var hasRetriedOnlineFallback = false
     private var hasRetriedClientFallback = false
 
@@ -87,11 +94,21 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
 
     private fun initializeTts() {
         try {
-            // Disconnected Google TTS lock - uses standard Android platform TextToSpeech
-            tts = TextToSpeech(context.applicationContext, this)
+            // Bind to Google's Speech/TTS engine ("com.google.android.tts") if installed,
+            // which has the user's downloaded native Telugu, Hindi, and Indian English offline voices!
+            val googleTtsPkg = "com.google.android.tts"
+            tts = if (isPackageInstalled(googleTtsPkg)) {
+                TextToSpeech(context.applicationContext, this, googleTtsPkg)
+            } else {
+                TextToSpeech(context.applicationContext, this)
+            }
         } catch (e: Exception) {
-            e.printStackTrace()
-            _isTtsReady.value = false
+            try {
+                tts = TextToSpeech(context.applicationContext, this)
+            } catch (fallbackEx: Exception) {
+                fallbackEx.printStackTrace()
+                _isTtsReady.value = false
+            }
         }
     }
 
@@ -108,8 +125,15 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
         if (status == TextToSpeech.SUCCESS) {
             _isTtsReady.value = true
 
-            // Fine-tune natural conversational cadence (0.88f prevents fast robotic distortion in Telugu)
-            tts?.setSpeechRate(0.88f)
+            val teLocale = Locale.forLanguageTag("te-IN")
+            val teAvail = tts?.isLanguageAvailable(teLocale) ?: TextToSpeech.LANG_NOT_SUPPORTED
+            if (teAvail >= TextToSpeech.LANG_AVAILABLE) {
+                tts?.setLanguage(teLocale)
+                _isTeluguTtsAvailable.value = true
+            }
+
+            // Natural conversational rate for Indian languages
+            tts?.setSpeechRate(0.90f)
             tts?.setPitch(1.0f)
 
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -194,7 +218,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
         try {
             stopSpeaking()
 
-            if (isTelugu && (_isTeluguTtsAvailable.value || cachedTeluguVoice != null)) {
+            if (isTelugu) {
                 val naturalTelugu = convertNumbersToTeluguWords(textTe)
                 val cleanTe = sanitizeForSpeech(naturalTelugu)
 
@@ -205,7 +229,13 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
                 }
                 tts?.setSpeechRate(0.88f) // Relaxed human pace for Telugu
                 tts?.setPitch(1.0f)
-                tts?.speak(cleanTe, TextToSpeech.QUEUE_FLUSH, null, "DhanamTtsMsgTe")
+                val result = tts?.speak(cleanTe, TextToSpeech.QUEUE_FLUSH, null, "DhanamTtsMsgTe")
+                if (result != TextToSpeech.SUCCESS && textEn.isNotBlank()) {
+                    val cleanEn = sanitizeForSpeech(textEn)
+                    tts?.setLanguage(Locale.forLanguageTag("en-IN"))
+                    tts?.setSpeechRate(0.92f)
+                    tts?.speak(cleanEn, TextToSpeech.QUEUE_FLUSH, null, "DhanamTtsMsgEn")
+                }
             } else {
                 val cleanEn = sanitizeForSpeech(textEn)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && cachedEnglishVoice != null) {
@@ -317,10 +347,42 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
         }
     }
 
+    fun setVoiceLanguage(lang: String) {
+        val normalized = when {
+            lang.startsWith("hi", ignoreCase = true) -> "hi"
+            lang.startsWith("en", ignoreCase = true) -> "en"
+            else -> "te"
+        }
+        activeLanguageCode = normalized
+        activeLanguageIsTelugu = (normalized == "te")
+        _voiceLanguage.value = normalized
+        voiceStateManager.setLocaleByCode(normalized)
+    }
+
     /**
      * Start in-built Speech-to-Text recognition using Android's SpeechRecognizer.
-     * When offline: configures EXTRA_PREFER_OFFLINE = true to prioritize downloaded packages.
-     * When online: allows network recognition for high-accuracy Telugu & English transcription.
+     * Supports:
+     * - "te" (Telugu)
+     * - "en" (English)
+     * - "hi" (Hindi)
+     */
+    fun startListening(
+        language: String,
+        onResult: (String) -> Unit,
+        onError: ((String) -> Unit)? = null
+    ) {
+        setVoiceLanguage(language)
+        startListening(
+            isTelugu = (activeLanguageCode == "te"),
+            onResult = onResult,
+            onError = onError
+        )
+    }
+
+    /**
+     * Start in-built Speech-to-Text recognition using Android's SpeechRecognizer.
+     * When offline: Google provides offline packages for English & Hindi, but NOT for Telugu.
+     * When online: uses network recognition for Telugu, Hindi, and English transcription.
      */
     fun startListening(
         isTelugu: Boolean,
@@ -329,7 +391,13 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
     ) {
         mainHandler.post {
             stopSpeaking()
-            activeLanguageIsTelugu = isTelugu
+            if (activeLanguageCode != "hi") {
+                activeLanguageIsTelugu = isTelugu
+                activeLanguageCode = if (isTelugu) "te" else "en"
+                _voiceLanguage.value = activeLanguageCode
+            } else {
+                activeLanguageIsTelugu = false
+            }
             currentResultCallback = onResult
             currentErrorCallback = onError
             _isListening.value = true
@@ -337,17 +405,6 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
             _partialTranscript.value = ""
             hasRetriedOnlineFallback = false
             hasRetriedClientFallback = false
-
-            if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-                _isListening.value = false
-                val msg = if (isTelugu)
-                    "ఈ పరికరంలో వాయిస్ రికగ్నిషన్ సేవ అందుబాటులో లేదు. వర్చువల్ ఎమ్యులేటర్‌లో కింద ఉన్న 'వాయిస్ టెస్ట్' చిప్స్ నొక్కండి."
-                else
-                    "Speech recognition service unavailable on this device. Use Quick Voice Test chips below in virtual device."
-                _speechError.value = msg
-                onError?.invoke(msg)
-                return@post
-            }
 
             try {
                 try {
@@ -357,14 +414,20 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
                     // ignore
                 }
 
-                speechRecognizer = try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
-                        SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                speechRecognizer = createSpeechRecognizerSafely()
+
+                if (speechRecognizer == null) {
+                    _isListening.value = false
+                    val msg = if (activeLanguageCode == "te") {
+                        "వాయిస్ రికగ్నిషన్ సేవ అందుబాటులో లేదు. దయచేసి మైక్ నొక్కి మళ్లీ మాట్లాడండి."
+                    } else if (activeLanguageCode == "hi") {
+                        "वॉयस सेवा अनुपलब्ध है। कृपया माइक दबाकर पुनः बोलें।"
                     } else {
-                        SpeechRecognizer.createSpeechRecognizer(context)
+                        "Voice recognition service unavailable. Please tap mic to try again."
                     }
-                } catch (e: Exception) {
-                    SpeechRecognizer.createSpeechRecognizer(context)
+                    _speechError.value = msg
+                    onError?.invoke(msg)
+                    return@post
                 }
 
                 speechRecognizer?.setRecognitionListener(createRecognitionListener())
@@ -376,6 +439,54 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
                 onError?.invoke(err)
             }
         }
+    }
+
+    fun isRecognitionServiceAvailable(context: Context): Boolean {
+        if (SpeechRecognizer.isRecognitionAvailable(context)) return true
+        return try {
+            val intent = Intent("android.speech.RecognitionService")
+            val list = context.packageManager.queryIntentServices(intent, 0)
+            list.isNotEmpty()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun isSystemSpeechActivityAvailable(context: Context): Boolean {
+        return try {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            val activities = context.packageManager.queryIntentActivities(intent, 0)
+            activities.isNotEmpty()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun createSpeechRecognizerSafely(): SpeechRecognizer? {
+        // 1. Android 12+ (API 31+) on-device speech recognition
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
+                    return SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                }
+            } catch (_: Exception) {}
+        }
+        // 2. Standard system createSpeechRecognizer
+        try {
+            val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            if (recognizer != null) return recognizer
+        } catch (_: Exception) {}
+
+        // 3. Android 8 (API 26/27) & OEM fallback: Explicit Google Recognition Service Component
+        try {
+            val googleComponent = android.content.ComponentName(
+                "com.google.android.googlequicksearchbox",
+                "com.google.android.voicesearch.serviceapi.GoogleRecognitionService"
+            )
+            return SpeechRecognizer.createSpeechRecognizer(context, googleComponent)
+        } catch (_: Exception) {}
+
+        return null
     }
 
     private fun createRecognitionListener(): RecognitionListener {
@@ -412,7 +523,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
                     try {
                         speechRecognizer?.cancel()
                         speechRecognizer?.destroy()
-                        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+                        speechRecognizer = createSpeechRecognizerSafely() ?: SpeechRecognizer.createSpeechRecognizer(context)
                         speechRecognizer?.setRecognitionListener(this)
                         startListeningInternal()
                         return
@@ -422,67 +533,19 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
                 _isListening.value = false
                 releaseAudioFocus()
 
-                val errorMsg = when (errorCode) {
-                    SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
-                        if (isEmulator()) {
-                            if (activeLanguageIsTelugu)
-                                "వర్చువల్ ఎమ్యులేటర్‌లో మైక్ ఆడియో నేరుగా రాదు. కింద ఉన్న 'వాయిస్ టెస్ట్ (Quick Voice)' చిప్స్ నొక్కండి!"
-                            else
-                                "Virtual device has no microphone stream. Tap any 'Quick Voice Test' chip below!"
-                        } else {
-                            if (activeLanguageIsTelugu) "వాయిస్ వినపడలేదు. మైక్ దగ్గరగా మాట్లాడండి."
-                            else "No speech match detected. Please speak closer to mic."
-                        }
-
-                    SpeechRecognizer.ERROR_AUDIO ->
-                        if (isEmulator()) {
-                            if (activeLanguageIsTelugu) "ఎమ్యులేటర్‌లో ఆడియో ఇన్‌పుట్ లేదు. కింద ఉన్న వాయిస్ టెస్ట్ బటన్ ఉపయోగించండి."
-                            else "Audio input unavailable in virtual device. Use Quick Voice Test chips below."
-                        } else {
-                            if (activeLanguageIsTelugu) "ఆడియో సమస్య. మైక్ అనుమతి తనిఖీ చేయండి."
-                            else "Audio error. Check mic permission."
-                        }
-
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
-                        if (activeLanguageIsTelugu) "మైక్రోఫోన్ అనుమతి అవసరం."
-                        else "Microphone permission is required."
-
-                    SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
-                        if (!isOnline()) {
-                            if (activeLanguageIsTelugu)
-                                "ఆఫ్‌లైన్ వాయిస్ గుర్తించబడలేదు. గూగుల్ సెట్టింగ్స్‌లో 'ఆఫ్‌లైన్ స్పీచ్ రికగ్నిషన్' (తెలుగు / ఇంగ్లీష్) ప్యాక్ డౌన్‌లోడ్ చేసుకుంటే నెట్ లేకుండా మాట్లాడవచ్చు."
-                            else
-                                "Offline speech model not detected. Download 'Offline Speech Recognition' (English / Telugu) in phone settings to use voice without internet."
-                        } else {
-                            if (activeLanguageIsTelugu) "నెట్‌వర్క్ సమస్య లేదా గూగుల్ వాయిస్ అందుబాటులో లేదు."
-                            else "Network connection or Google Voice service needed."
-                        }
-
-                    SpeechRecognizer.ERROR_CLIENT ->
-                        if (isEmulator()) {
-                            if (activeLanguageIsTelugu) "వర్చువల్ డివైస్: కింద ఉన్న 'వాయిస్ టెస్ట్' చిప్స్ నొక్కి వెంటనే పరీక్షించండి."
-                            else "Virtual device: Tap any 'Quick Voice Test' chip below to test immediately."
-                        } else {
-                            if (activeLanguageIsTelugu) "వాయిస్ రికగ్నిషన్ సమస్య. కింద ఉన్న గూగుల్ వాయిస్ బటన్ నొక్కండి."
-                            else "Speech service issue. Tap Google Voice below."
-                        }
-
-                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> {
-                        cancelListening()
-                        try {
-                            speechRecognizer?.destroy()
-                            speechRecognizer = null
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                        if (activeLanguageIsTelugu) "వాయిస్ సేవ బిజీగా ఉంది. మళ్లీ మైక్ నొక్కండి."
-                        else "Speech service busy. Tap mic to retry."
-                    }
-
-                    else ->
-                        if (activeLanguageIsTelugu) "వాయిస్ ప్రాసెస్ చేయలేకపోయాను. మళ్లీ మైక్ నొక్కండి."
-                        else "Could not process voice. Tap mic to retry."
+                // Resilient Offline Mode (Internet OFF):
+                // VoiceStateManager suppresses harsh error toasts when offline,
+                // routing the user gracefully through Quick Voice Test Chips.
+                if (voiceStateManager.shouldSuppressOfflineError(errorCode)) {
+                    _speechError.value = null
+                    return
                 }
+
+                val errorMsg = voiceStateManager.getFriendlyErrorMessage(
+                    errorCode,
+                    voiceStateManager.activeLocale.value,
+                    voiceStateManager.isOnline.value
+                )
                 _speechError.value = errorMsg
                 currentErrorCallback?.invoke(errorMsg)
             }
@@ -517,35 +580,8 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
 
     private fun startListeningInternal() {
         try {
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-
-                val primaryLang = if (activeLanguageIsTelugu) "te-IN" else "en-IN"
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, primaryLang)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, primaryLang)
-
-                // Only prefer offline when network is disconnected!
-                // When online, do NOT force offline so Google Cloud Speech service works reliably on all devices/emulators!
-                if (!isOnline()) {
-                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                }
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    val secondaryLang = if (activeLanguageIsTelugu) "en-IN" else "te-IN"
-                    putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf(secondaryLang))
-                }
-
-                // Pass silence limits as Long
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3500L)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1500L)
-
-                putExtra(RecognizerIntent.EXTRA_PROMPT, if (activeLanguageIsTelugu) "ఖర్చు లేదా అప్పు వివరాలు చెప్పండి..." else "Speak your expense or loan...")
-            }
-
+            voiceStateManager.refreshNetworkState()
+            val intent = voiceStateManager.buildSpeechIntent()
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -616,37 +652,36 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
     }
 
     fun createFallbackRecognizerIntent(isTelugu: Boolean): Intent {
+        val lang = if (isTelugu) "te" else activeLanguageCode
+        return createFallbackRecognizerIntentForLanguage(lang)
+    }
+
+    fun createFallbackRecognizerIntentForLanguage(languageCode: String): Intent {
         return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-            if (!isOnline()) {
+            // Only set EXTRA_PREFER_OFFLINE when offline AND language is NOT Telugu
+            if (!isOnline() && languageCode != "te") {
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             }
-            val primaryLang = if (isTelugu) "te-IN" else "en-IN"
+            val primaryLang = when (languageCode) {
+                "te" -> "te-IN"
+                "hi" -> "hi-IN"
+                else -> "en-IN"
+            }
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, primaryLang)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, primaryLang)
-            putExtra(
-                RecognizerIntent.EXTRA_PROMPT,
-                if (isTelugu) "మీ ఖర్చు లేదా అప్పు వివరాలు చెప్పండి (ఉదా: కూరగాయలు 250)..."
-                else "Speak your expense or loan details (e.g. Groceries 250)..."
-            )
+            val promptMsg = when (languageCode) {
+                "te" -> "మీ ఖర్చు లేదా అప్పు వివరాలు చెప్పండి (ఉదా: కూరగాయలు 250)..."
+                "hi" -> "खर्च या उधारी का विवरण बोलें (जैसे: राशन 250)..."
+                else -> "Speak your expense or loan details (e.g. Groceries 250)..."
+            }
+            putExtra(RecognizerIntent.EXTRA_PROMPT, promptMsg)
         }
     }
 
     fun isOnline(): Boolean {
-        return try {
-            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val net = cm?.activeNetwork ?: return false
-                val caps = cm.getNetworkCapabilities(net) ?: return false
-                caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            } else {
-                @Suppress("DEPRECATION")
-                cm?.activeNetworkInfo?.isConnected == true
-            }
-        } catch (_: Exception) {
-            false
-        }
+        return voiceStateManager.checkIsOnline()
     }
 
     fun openOfflineSpeechSettings(context: Context) {
@@ -778,6 +813,12 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
             try {
                 speechRecognizer?.destroy()
                 speechRecognizer = null
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            try {
+                voiceStateManager.destroy()
             } catch (e: Exception) {
                 e.printStackTrace()
             }

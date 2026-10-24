@@ -71,18 +71,26 @@ class MainActivity : FragmentActivity() {
     }
 
     fun launchSystemSpeechFallback() {
-        try {
-            val isTe = viewModel.preferredLanguage.value == "te"
-            val fallbackIntent = viewModel.voiceAgentManager.createFallbackRecognizerIntent(isTe)
-            systemSpeechLauncher.launch(fallbackIntent)
-        } catch (e: Exception) {
-            Toast.makeText(
-                this,
-                if (viewModel.preferredLanguage.value == "te") "వాయిస్ సేవ అందుబాటులో లేదు"
-                else "System voice recognition unavailable",
-                Toast.LENGTH_SHORT
-            ).show()
+        val isTe = viewModel.preferredLanguage.value == "te"
+        val fallbackIntent = viewModel.voiceAgentManager.createFallbackRecognizerIntent(isTe)
+
+        val canResolve = viewModel.voiceAgentManager.isSystemSpeechActivityAvailable(this)
+        if (canResolve) {
+            try {
+                systemSpeechLauncher.launch(fallbackIntent)
+                return
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
+
+        val errMsg = if (isTe) {
+            "వాయిస్ రికగ్నిషన్ సేవ ప్రారంభం కాలేదు. దయచేసి మైక్ నొక్కి మళ్లీ మాట్లాడండి."
+        } else {
+            "Voice recognition service unavailable. Please tap mic to try again."
+        }
+        viewModel.setVoiceErrorMessage(errMsg)
+        Toast.makeText(this, errMsg, Toast.LENGTH_SHORT).show()
     }
 
     fun requestAudioPermission(callback: (Boolean) -> Unit) {
@@ -396,6 +404,7 @@ fun MainAppScaffold(
 
             // Universal Voice Listening Dialog across all screens
             if (showVoiceListeningDialog) {
+                val currentVoiceLang by viewModel.voiceLanguage.collectAsState()
                 VoiceListeningDialog(
                     isTelugu = isTelugu,
                     isListening = isListening,
@@ -404,6 +413,14 @@ fun MainAppScaffold(
                     errorMessage = voiceErrorMessage,
                     isTeluguTtsAvailable = isTeluguTtsAvailable,
                     isEmulator = viewModel.voiceAgentManager.isEmulator(),
+                    isOnline = viewModel.voiceAgentManager.isOnline(),
+                    currentLanguage = currentVoiceLang,
+                    onSelectLanguage = { lang ->
+                        viewModel.setVoiceLanguage(lang)
+                        if (lang == "te") viewModel.setPreferredLanguage("te")
+                        else if (lang == "en") viewModel.setPreferredLanguage("en")
+                        onGlobalMicClick()
+                    },
                     onDismiss = {
                         viewModel.cancelVoiceListening()
                     },
@@ -413,13 +430,18 @@ fun MainAppScaffold(
                     onSwitchLanguage = {
                         val nextLang = if (isTelugu) "en" else "te"
                         viewModel.setPreferredLanguage(nextLang)
+                        viewModel.setVoiceLanguage(nextLang)
                         onGlobalMicClick()
                     },
+                    isSystemVoiceAvailable = viewModel.voiceAgentManager.isSystemSpeechActivityAvailable(context),
                     onDoneListening = {
                         viewModel.submitVoiceListeningImmediately()
                     },
                     onLaunchSystemVoice = {
                         (context as? MainActivity)?.launchSystemSpeechFallback()
+                    },
+                    onOpenVoiceSettings = {
+                        viewModel.voiceAgentManager.openOfflineSpeechSettings(context)
                     },
                     onSimulateVoice = { phrase ->
                         viewModel.voiceAgentManager.simulateVoiceInput(phrase)

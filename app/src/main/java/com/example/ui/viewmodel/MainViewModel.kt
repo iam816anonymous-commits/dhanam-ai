@@ -70,6 +70,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val speechError: StateFlow<String?> = voiceAgentManager.speechError
     val isTeluguTtsAvailable: StateFlow<Boolean> = voiceAgentManager.isTeluguTtsAvailable
     val isSpeaking: StateFlow<Boolean> = voiceAgentManager.isSpeaking
+    val voiceLanguage: StateFlow<String> = voiceAgentManager.voiceLanguage
 
     // Security lock state - only locked on startup if biometrics are enrolled OR App PIN is set
     private val _isAppLocked = MutableStateFlow(
@@ -112,6 +113,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!show) {
             _voiceErrorMessage.value = null
         }
+    }
+
+    fun setVoiceErrorMessage(msg: String?) {
+        _voiceErrorMessage.value = msg
+    }
+
+    fun clearVoiceError() {
+        _voiceErrorMessage.value = null
     }
 
     // Jarvis Living Entity States
@@ -330,6 +339,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             refreshMonthMetrics()
             refreshSavingsTips()
         }
+    }
+
+    fun setVoiceLanguage(lang: String) {
+        voiceAgentManager.setVoiceLanguage(lang)
+    }
+
+    fun startVoiceListeningWithLanguage(
+        language: String,
+        onResult: (String) -> Unit,
+        onError: ((String) -> Unit)? = null
+    ) {
+        _showVoiceListeningDialog.value = true
+        _voiceErrorMessage.value = null
+        voiceAgentManager.startListening(
+            language = language,
+            onResult = { res ->
+                _showVoiceListeningDialog.value = false
+                _voiceErrorMessage.value = null
+                onResult(res)
+            },
+            onError = { err ->
+                _voiceErrorMessage.value = err
+                onError?.invoke(err)
+            }
+        )
     }
 
     fun startVoiceListening(
