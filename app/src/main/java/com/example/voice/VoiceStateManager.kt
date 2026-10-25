@@ -16,23 +16,13 @@ import java.util.Locale
 
 /**
  * RecognitionEngineMode:
- * Represents the active speech recognition pipeline.
- * - ONLINE_CLOUD: Google Cloud Speech recognition servers via network (near 100% regional accuracy).
- * - OFFLINE_ON_DEVICE: Android RecognizerIntent on-device speech packs / resilient fallback simulation.
+ * Represents the active speech recognition pipeline:
+ * - ONLINE_CLOUD: Network-connected Google speech recognition servers (high regional accuracy).
+ * - OFFLINE_ON_DEVICE: Android RecognizerIntent on-device speech packs / offline handling.
  */
 enum class RecognitionEngineMode {
     ONLINE_CLOUD,
     OFFLINE_ON_DEVICE
-}
-
-/**
- * ConnectionQuality:
- * Telemetry on active data transport.
- */
-enum class ConnectionQuality {
-    WIFI,
-    CELLULAR,
-    OFFLINE
 }
 
 /**
@@ -65,34 +55,20 @@ enum class VoiceLocale(
         locale = Locale.forLanguageTag("en-IN"),
         promptTe = "ఖర్చు వివరాలు చెప్పండి...",
         promptEn = "Speak your expense or loan details (e.g. Groceries 250)..."
-    ),
-    HINDI(
-        code = "hi",
-        languageTag = "hi-IN",
-        displayNameTe = "హిందీ",
-        displayNameEn = "Hindi",
-        locale = Locale.forLanguageTag("hi-IN"),
-        promptTe = "వివరాలు చెప్పండి...",
-        promptEn = "खर्च या उधारी का विवरण बोलें (जैसे: राशन 250)..."
     );
 
     companion object {
         fun fromCode(code: String): VoiceLocale {
-            return when {
-                code.startsWith("te", ignoreCase = true) -> TELUGU
-                code.startsWith("hi", ignoreCase = true) -> HINDI
-                else -> ENGLISH
-            }
+            return if (code.startsWith("te", ignoreCase = true)) TELUGU else ENGLISH
         }
     }
 }
 
 /**
  * VoiceStateManager:
- * Robust, centralized state manager for speech recognition that dynamically monitors
- * Android's ConnectivityManager to switch between Google Cloud Speech (Online) and
- * Android RecognizerIntent (Offline), specifically optimized for Telugu (te-IN)
- * and English (en-IN) locales.
+ * Centralized state manager for speech recognition that dynamically monitors
+ * Android's ConnectivityManager to switch between Online and Offline speech recognition,
+ * specifically optimized for Telugu (te-IN) and English (en-IN) locales.
  */
 class VoiceStateManager(private val context: Context) {
 
@@ -109,23 +85,17 @@ class VoiceStateManager(private val context: Context) {
     private val _activeLocale = MutableStateFlow(VoiceLocale.TELUGU)
     val activeLocale: StateFlow<VoiceLocale> = _activeLocale.asStateFlow()
 
-    private val _connectionQuality = MutableStateFlow(ConnectionQuality.OFFLINE)
-    val connectionQuality: StateFlow<ConnectionQuality> = _connectionQuality.asStateFlow()
-
-    private val _statusDescriptionTe = MutableStateFlow("ఆఫ్‌లైన్ మోడ్ సిద్ధంగా ఉంది")
+    private val _statusDescriptionTe = MutableStateFlow("ఆఫ్‌లైన్")
     val statusDescriptionTe: StateFlow<String> = _statusDescriptionTe.asStateFlow()
 
-    private val _statusDescriptionEn = MutableStateFlow("Offline Mode Ready")
+    private val _statusDescriptionEn = MutableStateFlow("Offline")
     val statusDescriptionEn: StateFlow<String> = _statusDescriptionEn.asStateFlow()
 
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var isCallbackRegistered = false
 
     init {
-        // 1. Synchronous initial state check
         refreshNetworkState()
-
-        // 2. Register dynamic NetworkCallback for live auto-switching
         registerNetworkCallbackSafely()
     }
 
@@ -134,15 +104,12 @@ class VoiceStateManager(private val context: Context) {
      */
     fun refreshNetworkState() {
         val online = checkIsOnline()
-        val quality = resolveConnectionQuality()
-
         _isOnline.value = online
-        _connectionQuality.value = quality
 
         val mode = if (online) RecognitionEngineMode.ONLINE_CLOUD else RecognitionEngineMode.OFFLINE_ON_DEVICE
         _engineMode.value = mode
 
-        updateStatusDescriptions(mode, _activeLocale.value)
+        updateStatusDescriptions(mode)
     }
 
     private fun registerNetworkCallbackSafely() {
@@ -173,8 +140,7 @@ class VoiceStateManager(private val context: Context) {
             }
             isCallbackRegistered = true
         } catch (e: Exception) {
-            // Graceful fallback on restricted OEM environments or Robolectric tests
-            e.printStackTrace()
+            com.example.util.AppLogger.e("VoiceStateManager", "Failed registering network callback", e)
         }
     }
 
@@ -199,65 +165,33 @@ class VoiceStateManager(private val context: Context) {
         }
     }
 
-    private fun resolveConnectionQuality(): ConnectionQuality {
-        return try {
-            val cm = connectivityManager ?: return ConnectionQuality.OFFLINE
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val activeNet = cm.activeNetwork ?: return ConnectionQuality.OFFLINE
-                val caps = cm.getNetworkCapabilities(activeNet) ?: return ConnectionQuality.OFFLINE
-                when {
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> ConnectionQuality.WIFI
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> ConnectionQuality.CELLULAR
-                    else -> ConnectionQuality.OFFLINE
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                val netInfo = cm.activeNetworkInfo
-                if (netInfo?.isConnected == true) {
-                    if (netInfo.type == ConnectivityManager.TYPE_WIFI) ConnectionQuality.WIFI
-                    else ConnectionQuality.CELLULAR
-                } else {
-                    ConnectionQuality.OFFLINE
-                }
-            }
-        } catch (_: Exception) {
-            ConnectionQuality.OFFLINE
-        }
-    }
-
     /**
-     * Switch active locale between Telugu, English, and Hindi.
+     * Switch active locale between Telugu and English.
      */
     fun setLocale(locale: VoiceLocale) {
         _activeLocale.value = locale
-        updateStatusDescriptions(_engineMode.value, locale)
+        updateStatusDescriptions(_engineMode.value)
     }
 
     fun setLocaleByCode(code: String) {
         setLocale(VoiceLocale.fromCode(code))
     }
 
-    private fun updateStatusDescriptions(mode: RecognitionEngineMode, locale: VoiceLocale) {
+    private fun updateStatusDescriptions(mode: RecognitionEngineMode) {
         if (mode == RecognitionEngineMode.ONLINE_CLOUD) {
-            _statusDescriptionTe.value = "గూగుల్ క్లౌడ్ స్పీచ్ యాక్టివ్ (అధిక ఖచ్చితత్వం)"
-            _statusDescriptionEn.value = "Google Cloud Speech Active (High Accuracy)"
+            _statusDescriptionTe.value = "ఆన్‌లైన్"
+            _statusDescriptionEn.value = "Online"
         } else {
-            if (locale == VoiceLocale.ENGLISH) {
-                _statusDescriptionTe.value = "ఆఫ్‌లైన్ స్పీచ్ ప్యాక్ యాక్టివ్ (ఇంగ్లీష్)"
-                _statusDescriptionEn.value = "Offline Speech Pack Active (English)"
-            } else {
-                _statusDescriptionTe.value = "ఆఫ్‌లైన్ మోడ్ యాక్టివ్ (త్వరిత చిప్స్ & సిమ్యులేషన్)"
-                _statusDescriptionEn.value = "Offline Mode Active (Quick Chips & Simulation)"
-            }
+            _statusDescriptionTe.value = "ఆఫ్‌లైన్"
+            _statusDescriptionEn.value = "Offline"
         }
     }
 
     /**
      * Builds a pre-configured SpeechRecognizer Intent according to active ConnectivityManager state:
-     * - Online: Google Cloud Speech intent (omits EXTRA_PREFER_OFFLINE) for highest regional accuracy.
+     * - Online: Cloud speech intent for highest regional accuracy.
      * - Offline English: Sets EXTRA_PREFER_OFFLINE = true to leverage downloaded on-device pack.
-     * - Offline Telugu: Uses on-device recognition intent without crashing or throwing unhandled errors.
+     * - Offline Telugu: Uses on-device recognition intent without crashing.
      */
     fun buildSpeechIntent(
         locale: VoiceLocale = _activeLocale.value,
@@ -273,10 +207,7 @@ class VoiceStateManager(private val context: Context) {
 
             // Online vs Offline policy
             if (!online) {
-                // English offline uses downloaded on-device pack
-                if (locale == VoiceLocale.ENGLISH || preferOfflineOverride == true) {
-                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                }
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             }
 
             val primaryLang = locale.languageTag
@@ -285,14 +216,12 @@ class VoiceStateManager(private val context: Context) {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 val alternateLangs = when (locale) {
-                    VoiceLocale.TELUGU -> arrayOf(VoiceLocale.ENGLISH.languageTag, VoiceLocale.HINDI.languageTag)
-                    VoiceLocale.ENGLISH -> arrayOf(VoiceLocale.TELUGU.languageTag, VoiceLocale.HINDI.languageTag)
-                    VoiceLocale.HINDI -> arrayOf(VoiceLocale.ENGLISH.languageTag, VoiceLocale.TELUGU.languageTag)
+                    VoiceLocale.TELUGU -> arrayOf(VoiceLocale.ENGLISH.languageTag)
+                    VoiceLocale.ENGLISH -> arrayOf(VoiceLocale.TELUGU.languageTag)
                 }
                 putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", alternateLangs)
             }
 
-            // Silence timing configurations
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3500L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1500L)
@@ -303,35 +232,18 @@ class VoiceStateManager(private val context: Context) {
     }
 
     /**
-     * Determines whether a speech recognizer error should be suppressed when offline.
-     * Prevents harsh system toasts and errors for missing on-device offline models,
-     * allowing seamless fallback to Quick Voice Test Chips.
-     */
-    fun shouldSuppressOfflineError(errorCode: Int, locale: VoiceLocale = _activeLocale.value): Boolean {
-        if (!_isOnline.value) {
-            // Suppress offline network, client, no-match, or audio timeouts gracefully
-            return errorCode == SpeechRecognizer.ERROR_NETWORK ||
-                    errorCode == SpeechRecognizer.ERROR_NETWORK_TIMEOUT ||
-                    errorCode == SpeechRecognizer.ERROR_CLIENT ||
-                    errorCode == SpeechRecognizer.ERROR_SERVER ||
-                    errorCode == SpeechRecognizer.ERROR_NO_MATCH ||
-                    errorCode == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
-        }
-        return false
-    }
-
-    /**
-     * Provides empathetic, user-facing error message based on language and online status.
+     * Provides clear, gentle, user-facing error message based on language and online status.
+     * Never leaves the user with silence or confusion.
      */
     fun getFriendlyErrorMessage(errorCode: Int, locale: VoiceLocale = _activeLocale.value, isOnline: Boolean = _isOnline.value): String {
         val isTelugu = locale == VoiceLocale.TELUGU
         return when (errorCode) {
             SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
                 if (isTelugu) "వాయిస్ వినపడలేదు. మైక్ దగ్గరగా మాట్లాడండి."
-                else "No speech match detected. Please speak closer to microphone."
+                else "No speech detected. Please speak closer to microphone."
 
             SpeechRecognizer.ERROR_AUDIO ->
-                if (isTelugu) "ఆడియో రికార్డింగ్ సమస్య. మైక్ అనుమతి తనిఖీ చేయండి."
+                if (isTelugu) "ఆడియో సమస్య. మైక్ అనుమతి తనిఖీ చేయండి."
                 else "Audio recording error. Please check microphone."
 
             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
@@ -340,11 +252,11 @@ class VoiceStateManager(private val context: Context) {
 
             SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
                 if (!isOnline) {
-                    if (isTelugu) "ఆఫ్‌లైన్: కింద ఉన్న త్వరిత చిప్స్ నొక్కండి లేదా మైక్ మళ్లీ నొక్కండి."
-                    else "Offline: Tap Quick Voice chips below or speak closer to mic."
+                    if (isTelugu) "ఆఫ్‌లైన్: ఆన్-డివైస్ వాయిస్ ప్యాక్ లేదు లేదా నెట్‌వర్క్ అవసరం."
+                    else "Offline: On-device speech pack not found or network required."
                 } else {
-                    if (isTelugu) "నెట్‌వర్క్ సమస్య లేదా గూగుల్ వాయిస్ అందుబాటులో లేదు."
-                    else "Network connection or Google Speech service needed."
+                    if (isTelugu) "నెట్‌వర్క్ కనెక్షన్ లేదా గూగుల్ వాయిస్ సేవ అవసరం."
+                    else "Network connection or Google Speech service required."
                 }
 
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
@@ -352,8 +264,13 @@ class VoiceStateManager(private val context: Context) {
                 else "Speech recognizer is busy. Please try again."
 
             SpeechRecognizer.ERROR_CLIENT ->
-                if (isTelugu) "వాయిస్ ప్రాసెస్ చేయలేకపోయాను. మళ్లీ మైక్ నొక్కండి."
-                else "Speech service issue. Please tap mic to retry."
+                if (!isOnline) {
+                    if (isTelugu) "ఆఫ్‌లైన్ వాయిస్ గుర్తించలేకపోయాను. దయచేసి మళ్లీ మాట్లాడండి."
+                    else "Offline speech not recognized. Please try speaking again."
+                } else {
+                    if (isTelugu) "వాయిస్ సేవలో సమస్య. మళ్లీ మైక్ నొక్కండి."
+                    else "Speech service issue. Please tap mic to retry."
+                }
 
             else ->
                 if (isTelugu) "వాయిస్ గుర్తించలేకపోయాను. మళ్లీ ప్రయత్నించండి."
@@ -369,7 +286,7 @@ class VoiceStateManager(private val context: Context) {
             try {
                 connectivityManager.unregisterNetworkCallback(networkCallback!!)
             } catch (e: Exception) {
-                e.printStackTrace()
+                com.example.util.AppLogger.e("VoiceStateManager", "Failed unregistering network callback", e)
             } finally {
                 isCallbackRegistered = false
                 networkCallback = null

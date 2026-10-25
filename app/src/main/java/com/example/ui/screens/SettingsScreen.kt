@@ -103,13 +103,16 @@ fun SettingsScreen(
     val categoryBudgets by viewModel.categoryBudgets.collectAsState()
     val isVoiceEnabled by viewModel.voiceFeedbackEnabled.collectAsState()
     val appPin by viewModel.appPin.collectAsState()
+    val isCloudAiOptIn by viewModel.isCloudAiOptIn.collectAsState()
     val adaptivePlan by viewModel.adaptivePlan.collectAsState()
     val isTelugu = preferredLang == "te"
 
     var showBudgetDialog by remember { mutableStateOf(false) }
     var showBiometricUnenrolledDialog by remember { mutableStateOf(false) }
     var showAppPinDialog by remember { mutableStateOf(false) }
+    var showRemovePinDialog by remember { mutableStateOf(false) }
     var showClearDataDialog by remember { mutableStateOf(false) }
+    var showBatteryOptimizationDialog by remember { mutableStateOf(false) }
     var categoryToEdit by remember { mutableStateOf<CategoryBudget?>(null) }
 
     // Dynamic Permission States
@@ -257,11 +260,21 @@ fun SettingsScreen(
                             }
                         },
                         onOpenSettings = {
-                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                data = Uri.fromParts("package", context.packageName, null)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            try {
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.fromParts("package", context.packageName, null)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                com.example.util.AppLogger.e("SettingsScreen", "Failed opening details settings", e)
+                                try {
+                                    val generalIntent = Intent(Settings.ACTION_SETTINGS).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(generalIntent)
+                                } catch (_: Exception) {}
                             }
-                            context.startActivity(intent)
                         },
                         isTelugu = isTelugu
                     )
@@ -288,11 +301,21 @@ fun SettingsScreen(
                             }
                         },
                         onOpenSettings = {
-                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                data = Uri.fromParts("package", context.packageName, null)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            try {
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.fromParts("package", context.packageName, null)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                com.example.util.AppLogger.e("SettingsScreen", "Failed opening details settings", e)
+                                try {
+                                    val generalIntent = Intent(Settings.ACTION_SETTINGS).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(generalIntent)
+                                } catch (_: Exception) {}
                             }
-                            context.startActivity(intent)
                         },
                         isTelugu = isTelugu
                     )
@@ -315,6 +338,17 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(if (isTelugu) "నోటిఫికేషన్ పరీక్షించండి (Test Notification)" else "Send Test Notification")
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { showBatteryOptimizationDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (isTelugu) "రిమైండర్లు అందట్లేదా? (బ్యాటరీ సెట్టింగ్స్)" else "Reminders not arriving? (OEM Battery Fix)")
                     }
                 }
             }
@@ -518,7 +552,7 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.End
                         ) {
-                            TextButton(onClick = { viewModel.setAppPin(null) }) {
+                            TextButton(onClick = { showRemovePinDialog = true }) {
                                 Text(if (isTelugu) "పిన్ తొలగించండి (Remove PIN)" else "Remove PIN", color = AlertRed)
                             }
                         }
@@ -579,6 +613,63 @@ fun SettingsScreen(
                         checked = isVoiceEnabled,
                         onCheckedChange = { viewModel.setVoiceFeedbackEnabled(it) },
                         modifier = Modifier.testTag("voice_response_switch")
+                    )
+                }
+            }
+        }
+
+        // Cloud AI Opt-In Toggle Card (Privacy & Transparency)
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.secondaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Psychology,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = if (isTelugu) "క్లౌడ్ AI సహాయం (ఐచ్ఛికం)" else "Cloud AI Assistance (Optional)",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (isTelugu) "స్థానిక పార్సింగ్ విఫలమైనప్పుడు క్లౌడ్ AI (Gemini) ని ఉపయోగించండి. ఆఫ్‌లో ఉన్నప్పుడు మీ ఆర్థిక డేటా కేవలం మీ ఫోన్‌లోనే ఉంటుంది."
+                                else "Allow Gemini AI fallback when on-device parsing is uncertain. When off, data stays 100% on-device.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = isCloudAiOptIn,
+                        onCheckedChange = { viewModel.setCloudAiOptIn(it) },
+                        modifier = Modifier.testTag("cloud_ai_opt_in_switch")
                     )
                 }
             }
@@ -935,6 +1026,75 @@ fun SettingsScreen(
         )
     }
 
+    if (showBatteryOptimizationDialog) {
+        AlertDialog(
+            onDismissRequest = { showBatteryOptimizationDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = if (isTelugu) "బ్యాటరీ ఆప్టిమైజేషన్ & రిమైండర్లు" else "Battery Saver & Reminders",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = if (isTelugu)
+                            "కొన్ని ఫోన్లలో (Samsung, Xiaomi, Vivo, Oppo, OnePlus, Tecno) కఠినమైన బ్యాటరీ ఆదా నియమాల వల్ల రిమైండర్లు సమయానికి రాకపోవచ్చు. దయచేసి ధనం AI కి 'Unrestricted / బ్యాక్‌గ్రౌండ్ అనుమతి' ఇవ్వండి:"
+                        else
+                            "Aggressive OEM battery optimizations (Samsung, Xiaomi/Redmi, Vivo, Oppo/Realme, OnePlus, Infinix/Tecno) can delay or block background reminders. Please set Dhanam AI battery to Unrestricted:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = if (isTelugu)
+                            "• Samsung: సెట్టింగ్స్ -> యాప్స్ -> Dhanam AI -> బ్యాటరీ -> అపరిమితం (Unrestricted)\n• Xiaomi/Redmi: సెక్యూరిటీ -> బ్యాటరీ సేవర్ -> Dhanam AI -> పరిమితులు లేవు (No restrictions) & ఆటో-స్టార్ట్ ఆన్ చేయండి\n• Vivo/Oppo/Realme: సెట్టింగ్స్ -> బ్యాటరీ -> బ్యాక్‌గ్రౌండ్ పవర్ వినియోగాన్ని అనుమతించు\n• OnePlus: సెట్టింగ్స్ -> యాప్స్ -> Dhanam AI -> బ్యాటరీ వినియోగం -> Allow background activity"
+                        else
+                            "• Samsung: Settings -> Apps -> Dhanam AI -> Battery -> Unrestricted\n• Xiaomi/Redmi: Security -> Battery Saver -> Dhanam AI -> No restrictions & Autostart ON\n• Vivo/Oppo/Realme: Settings -> Battery -> Allow background power consumption\n• OnePlus: Settings -> Apps -> Dhanam AI -> Battery usage -> Allow background activity",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showBatteryOptimizationDialog = false
+                        try {
+                            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            try {
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.fromParts("package", context.packageName, null)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            } catch (_: Exception) {}
+                        }
+                    }
+                ) {
+                    Text(if (isTelugu) "సెట్టింగ్స్ తెరవండి" else "Open Battery Settings")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatteryOptimizationDialog = false }) {
+                    Text(if (isTelugu) "సరే" else "Dismiss")
+                }
+            }
+        )
+    }
+
     if (showBudgetDialog) {
         var newBudgetStr by remember { mutableStateOf("${overallBudget.toInt()}") }
         AlertDialog(
@@ -1035,27 +1195,48 @@ fun SettingsScreen(
     }
 
     if (showAppPinDialog) {
+        var currentPin by remember { mutableStateOf("") }
         var newPin by remember { mutableStateOf("") }
         var confirmPin by remember { mutableStateOf("") }
         var errorMsg by remember { mutableStateOf<String?>(null) }
+        val isChanging = appPin != null
 
         AlertDialog(
             onDismissRequest = { showAppPinDialog = false },
             title = {
                 Text(
-                    text = if (isTelugu) "4-అంకెల యాప్ పిన్ సెట్ చేయండి" else "Set 4-Digit App PIN",
+                    text = if (isChanging) {
+                        if (isTelugu) "యాప్ పిన్ మార్చండి" else "Change App PIN"
+                    } else {
+                        if (isTelugu) "4-అంకెల యాప్ పిన్ సెట్ చేయండి" else "Set 4-Digit App PIN"
+                    },
                     fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (isChanging) {
+                        OutlinedTextField(
+                            value = currentPin,
+                            onValueChange = {
+                                if (it.length <= 6) currentPin = it
+                                errorMsg = null
+                            },
+                            label = { Text(if (isTelugu) "ప్రస్తుత పిన్" else "Current PIN") },
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
                     OutlinedTextField(
                         value = newPin,
                         onValueChange = {
-                            if (it.length <= 4) newPin = it
+                            if (it.length <= 6) newPin = it
                             errorMsg = null
                         },
-                        label = { Text(if (isTelugu) "క్రొత్త పిన్ (4 అంకెలు)" else "New PIN (4 digits)") },
+                        label = { Text(if (isTelugu) "క్రొత్త పిన్ (4-6 అంకెలు)" else "New PIN (4-6 digits)") },
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1063,10 +1244,11 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = confirmPin,
                         onValueChange = {
-                            if (it.length <= 4) confirmPin = it
+                            if (it.length <= 6) confirmPin = it
                             errorMsg = null
                         },
                         label = { Text(if (isTelugu) "పిన్ ధృవీకరించండి" else "Confirm PIN") },
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1078,10 +1260,24 @@ fun SettingsScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    if (newPin.length != 4) {
-                        errorMsg = if (isTelugu) "పిన్ ఖచ్చితంగా 4 అంకెలు ఉండాలి" else "PIN must be exactly 4 digits"
+                    if (isChanging && currentPin.isBlank()) {
+                        errorMsg = if (isTelugu) "దయచేసి ప్రస్తుత పిన్ నమోదు చేయండి" else "Please enter your current PIN"
+                    } else if (newPin.length !in 4..6) {
+                        errorMsg = if (isTelugu) "పిన్ 4 నుండి 6 అంకెలు ఉండాలి" else "PIN must be between 4 and 6 digits"
                     } else if (newPin != confirmPin) {
                         errorMsg = if (isTelugu) "రెండు పిన్‌లు సరిపోలడం లేదు" else "PINs do not match"
+                    } else if (isChanging) {
+                        val success = viewModel.changeAppPin(currentPin, newPin)
+                        if (success) {
+                            showAppPinDialog = false
+                            Toast.makeText(
+                                context,
+                                if (isTelugu) "యాప్ పిన్ విజయవంతంగా మార్చబడింది!" else "App PIN changed successfully!",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            errorMsg = if (isTelugu) "ప్రస్తుత పిన్ తప్పుగా ఉంది" else "Incorrect current PIN"
+                        }
                     } else {
                         viewModel.setAppPin(newPin)
                         showAppPinDialog = false
@@ -1097,6 +1293,71 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showAppPinDialog = false }) {
+                    Text(if (isTelugu) "రద్దు" else "Cancel")
+                }
+            }
+        )
+    }
+
+    if (showRemovePinDialog) {
+        var verifyCurrentPin by remember { mutableStateOf("") }
+        var removeErrorMsg by remember { mutableStateOf<String?>(null) }
+
+        AlertDialog(
+            onDismissRequest = { showRemovePinDialog = false },
+            title = {
+                Text(
+                    text = if (isTelugu) "యాప్ పిన్ తొలగించండి" else "Remove App PIN",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = if (isTelugu)
+                            "పిన్ తొలగించడానికి మీ ప్రస్తుత పిన్ నమోదు చేయండి."
+                        else
+                            "Please enter your current PIN to confirm removal.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    OutlinedTextField(
+                        value = verifyCurrentPin,
+                        onValueChange = {
+                            if (it.length <= 6) verifyCurrentPin = it
+                            removeErrorMsg = null
+                        },
+                        label = { Text(if (isTelugu) "ప్రస్తుత పిన్" else "Current PIN") },
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (removeErrorMsg != null) {
+                        Text(text = removeErrorMsg!!, color = AlertRed, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val removed = viewModel.removeAppPin(verifyCurrentPin)
+                        if (removed) {
+                            showRemovePinDialog = false
+                            Toast.makeText(
+                                context,
+                                if (isTelugu) "యాప్ పిన్ తొలగించబడింది" else "App PIN removed",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            removeErrorMsg = if (isTelugu) "తప్పుడు పిన్. మళ్ళీ ప్రయత్నించండి." else "Incorrect PIN. Try again."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AlertRed)
+                ) {
+                    Text(if (isTelugu) "తొలగించు" else "Remove")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemovePinDialog = false }) {
                     Text(if (isTelugu) "రద్దు" else "Cancel")
                 }
             }

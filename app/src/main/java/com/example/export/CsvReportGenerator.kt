@@ -29,7 +29,7 @@ object CsvReportGenerator {
     ): File? {
         return try {
             val fileName = "Dhanam_AI_Financial_Report_${monthName}_$year.csv"
-            val exportDir = File(context.cacheDir, "exports")
+            val exportDir = File(context.cacheDir, "reports")
             if (!exportDir.exists()) {
                 exportDir.mkdirs()
             }
@@ -104,7 +104,7 @@ object CsvReportGenerator {
             }
             csvFile
         } catch (e: Exception) {
-            e.printStackTrace()
+            com.example.util.AppLogger.e("CsvReportGenerator", "Failed generating CSV export", e)
             null
         }
     }
@@ -131,7 +131,10 @@ object CsvReportGenerator {
             }
             context.startActivity(chooser)
         } catch (e: Exception) {
-            e.printStackTrace()
+            com.example.util.AppLogger.e("CsvReportGenerator", "Failed to share CSV report", e)
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(context, "No app available to open or share CSV file", android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

@@ -50,7 +50,7 @@ class AdaptiveMerchantCache(context: Context) {
                 dynamicMerchantMap[key] = LearnedMerchant(cat, mode, freq)
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            com.example.util.AppLogger.e("AdaptiveMerchantCache", "Failed loading learned cache", e)
         }
     }
 
@@ -70,7 +70,7 @@ class AdaptiveMerchantCache(context: Context) {
             }
             prefs.edit().putString(KEY_LEARNED_MERCHANTS, json.toString()).apply()
         } catch (e: Exception) {
-            e.printStackTrace()
+            com.example.util.AppLogger.e("AdaptiveMerchantCache", "Failed saving learned cache", e)
         }
     }
 
@@ -194,7 +194,14 @@ class AdaptiveMerchantCache(context: Context) {
 
     private fun containsAny(text: String, vararg keywords: String): Boolean {
         for (kw in keywords) {
-            if (text.contains(kw, ignoreCase = true)) return true
+            val isAsciiWord = kw.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' }
+            if (isAsciiWord) {
+                // Whole-word boundary matching so "pen" doesn't match "spent", "vi" doesn't match "movie", "tea" doesn't match "steam", etc.
+                val regex = Regex("""\b${Regex.escape(kw)}\b""", RegexOption.IGNORE_CASE)
+                if (regex.containsMatchIn(text)) return true
+            } else {
+                if (text.contains(kw, ignoreCase = true)) return true
+            }
         }
         return false
     }

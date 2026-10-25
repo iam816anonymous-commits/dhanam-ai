@@ -566,7 +566,12 @@ fun LoanKhataCard(
                                     }
                                     context.startActivity(dialIntent)
                                 } catch (e: Exception) {
-                                    // Ignore if dialer is not available
+                                    com.example.util.AppLogger.e("LendingKhataScreen", "Dialer intent failed", e)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        if (isTelugu) "డయలర్ అందుబాటులో లేదు" else "Dialer app not available",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                             },
                             modifier = Modifier

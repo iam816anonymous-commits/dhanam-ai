@@ -182,9 +182,13 @@ fun BiometricLockOverlay(
                             if (it.length <= 6) {
                                 enteredPin = it
                                 pinError = false
-                                if (it.length == appPin.length) {
+                                if (it.length in 4..6) {
                                     val success = onVerifyPin(it)
-                                    pinError = !success
+                                    if (success) {
+                                        pinError = false
+                                    } else if (it.length == 6) {
+                                        pinError = true
+                                    }
                                 }
                             }
                         },

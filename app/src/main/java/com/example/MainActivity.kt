@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -80,7 +81,7 @@ class MainActivity : FragmentActivity() {
                 systemSpeechLauncher.launch(fallbackIntent)
                 return
             } catch (e: Exception) {
-                e.printStackTrace()
+                com.example.util.AppLogger.e("MainActivity", "System speech launch failed", e)
             }
         }
 
@@ -151,6 +152,7 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         NotificationReminderManager.initNotificationChannel(this)
@@ -278,6 +280,34 @@ class MainActivity : FragmentActivity() {
             }
         )
     }
+
+    override fun onResume() {
+        super.onResume()
+        val app = application as? DhanamApplication
+        if (app?.shouldRelockOnResume == true) {
+            app.shouldRelockOnResume = false
+            viewModel.lockApp()
+        }
+        applyScreenshotPrivacy()
+    }
+
+    fun applyScreenshotPrivacy() {
+        val isPrivacyEnabled = viewModel.preferenceManager.isScreenshotPrivacyEnabled()
+        if (isPrivacyEnabled) {
+            window.setFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SECURE,
+                android.view.WindowManager.LayoutParams.FLAG_SECURE
+            )
+        } else {
+            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        viewModel.cancelVoiceListening()
+        viewModel.voiceAgentManager.stopSpeaking()
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -299,6 +329,8 @@ fun MainAppScaffold(
     val rmsDb by viewModel.rmsDb.collectAsState()
     val voiceErrorMessage by viewModel.voiceErrorMessage.collectAsState()
     val isTeluguTtsAvailable by viewModel.isTeluguTtsAvailable.collectAsState()
+    val activeTouchInteraction by viewModel.activeTouchInteraction.collectAsState()
+    val agentState by viewModel.agentState.collectAsState()
 
     // BackHandler to return to Agent if on other screen
     BackHandler(enabled = currentScreen != Screen.AGENT) {
@@ -308,6 +340,15 @@ fun MainAppScaffold(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
+                navigationIcon = {
+                    com.example.ui.components.AgentStatusPill(
+                        state = agentState,
+                        rmsDb = rmsDb,
+                        isTelugu = isTelugu,
+                        onClick = onGlobalMicClick,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                },
                 title = {
                     Text(
                         text = if (isTelugu) currentScreen.titleTe else currentScreen.titleEn,
@@ -402,6 +443,12 @@ fun MainAppScaffold(
                 onMicClick = onGlobalMicClick
             )
 
+            // Real-Time Visible Agent Touch & Interaction Indicator (Finger pointer, capacitive ripples, HUD)
+            com.example.ui.components.AgentInteractionTouchOverlay(
+                interaction = activeTouchInteraction,
+                isTelugu = isTelugu
+            )
+
             // Universal Voice Listening Dialog across all screens
             if (showVoiceListeningDialog) {
                 val currentVoiceLang by viewModel.voiceLanguage.collectAsState()
@@ -443,9 +490,12 @@ fun MainAppScaffold(
                     onOpenVoiceSettings = {
                         viewModel.voiceAgentManager.openOfflineSpeechSettings(context)
                     },
-                    onSimulateVoice = { phrase ->
-                        viewModel.voiceAgentManager.simulateVoiceInput(phrase)
-                    }
+                    onInstallTtsData = {
+                        viewModel.voiceAgentManager.openInstallTtsData(context)
+                    },
+                    onSimulateVoice = if (BuildConfig.DEBUG || viewModel.voiceAgentManager.isEmulator()) {
+                        { phrase -> viewModel.voiceAgentManager.simulateVoiceInput(phrase) }
+                    } else null
                 )
             }
         }

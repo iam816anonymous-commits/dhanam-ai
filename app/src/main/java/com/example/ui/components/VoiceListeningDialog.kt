@@ -1,8 +1,6 @@
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -21,6 +19,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -75,6 +74,7 @@ fun VoiceListeningDialog(
     onDoneListening: (() -> Unit)? = null,
     onLaunchSystemVoice: (() -> Unit)? = null,
     onOpenVoiceSettings: (() -> Unit)? = null,
+    onInstallTtsData: (() -> Unit)? = null,
     onSimulateVoice: ((String) -> Unit)? = null
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -96,11 +96,7 @@ fun VoiceListeningDialog(
         1f
     }
 
-    val activeLang = when {
-        currentLanguage.startsWith("hi", ignoreCase = true) -> "hi"
-        currentLanguage.startsWith("en", ignoreCase = true) -> "en"
-        else -> if (isTelugu) "te" else "en"
-    }
+    val activeLang = if (currentLanguage.startsWith("en", ignoreCase = true)) "en" else "te"
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -127,7 +123,7 @@ fun VoiceListeningDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (activeLang == "te") "వాయిస్ ఇన్‌పుట్" else if (activeLang == "hi") "वॉइस इनपुट" else "Voice Input",
+                        text = if (activeLang == "te") "వాయిస్ ఇన్‌పుట్" else "Voice Input",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -159,18 +155,17 @@ fun VoiceListeningDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Multilingual Selector Chips: Telugu, English, Hindi
+                // Language Selector Chips: Telugu & English
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     val languages = listOf(
-                        Triple("te", "తెలుగు", ""),
-                        Triple("en", "English", ""),
-                        Triple("hi", "हिन्दी", "")
+                        Pair("te", "తెలుగు (Telugu)"),
+                        Pair("en", "English (India)")
                     )
 
-                    languages.forEach { (code, name, _) ->
+                    languages.forEach { (code, name) ->
                         val isSelected = activeLang == code
                         Surface(
                             shape = RoundedCornerShape(12.dp),
@@ -206,54 +201,29 @@ fun VoiceListeningDialog(
                     }
                 }
 
-                // Display live RecognitionEngineMode status (Online Cloud vs Offline On-Device)
-                if (!isOnline) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                        modifier = Modifier.fillMaxWidth()
+                // Display live status banner (Online vs Offline)
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isOnline) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("⚡", fontSize = 11.sp)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = when (activeLang) {
-                                    "te" -> "ఆఫ్‌లైన్ వాయిస్ మోడ్ యాక్టివ్ (ఆన్-డివైస్ స్పీచ్)"
-                                    "hi" -> "ऑफलाइन वॉइस एक्टिव (ऑन-डिवाइस स्पीच)"
-                                    else -> "Offline Voice Active (On-device speech)"
-                                },
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        }
-                    }
-                } else {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("🌐", fontSize = 11.sp)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = when (activeLang) {
-                                    "te" -> "గూగుల్ క్లౌడ్ స్పీచ్ యాక్టివ్ (అధిక ఖచ్చితత్వం)"
-                                    "hi" -> "Google क्लाउड स्पीच एक्टिव (उच्च सटीकता)"
-                                    else -> "Google Cloud Speech Active (High Accuracy)"
-                                },
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
+                        Text(if (isOnline) "🌐" else "⚡", fontSize = 11.sp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isOnline) {
+                                if (activeLang == "te") "ఆన్‌లైన్ (Online)" else "Online"
+                            } else {
+                                if (activeLang == "te") "ఆఫ్‌లైన్ (Offline)" else "Offline"
+                            },
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            color = if (isOnline) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                        )
                     }
                 }
 
@@ -281,18 +251,18 @@ fun VoiceListeningDialog(
                             .size(76.dp)
                             .clip(CircleShape)
                             .background(
-                                if (errorMessage != null && isOnline) MaterialTheme.colorScheme.error
+                                if (errorMessage != null) MaterialTheme.colorScheme.error
                                 else EmeraldPrimaryLight
                             )
                             .clickable {
-                                if ((errorMessage != null && isOnline) || !isListening) {
+                                if (errorMessage != null || !isListening) {
                                     onRetryListening()
                                 }
                             },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (errorMessage != null && isOnline) Icons.Default.MicOff else Icons.Default.Mic,
+                            imageVector = if (errorMessage != null) Icons.Default.MicOff else Icons.Default.Mic,
                             contentDescription = if (isListening) "Listening" else "Mic",
                             tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(36.dp)
@@ -300,15 +270,15 @@ fun VoiceListeningDialog(
                     }
                 }
 
-                // Quick Voice Test Chips and Virtual Mic Simulation tray visible right below the microphone
+                // Quick Voice Test Chips - ONLY visible in debug builds or emulators when onSimulateVoice is passed
                 if (onSimulateVoice != null) {
                     Spacer(modifier = Modifier.height(14.dp))
                     Surface(
                         shape = RoundedCornerShape(14.dp),
-                        color = if (!isOnline) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
-                            if (!isOnline) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                         ),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -319,66 +289,40 @@ fun VoiceListeningDialog(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (activeLang == "te") "✨ త్వరిత వాయిస్ ఎంట్రీ (ఆఫ్‌లైన్ ఇన్‌స్టంట్):"
-                                    else if (activeLang == "hi") "✨ त्वरित वॉइस एंट्री (ऑफ़लाइन तुरंत):"
-                                    else "✨ Quick Voice Simulation (Instant Offline):",
+                                    text = if (activeLang == "te") "🛠️ పరీక్ష కోసం నమూనా వాక్యాలు:"
+                                    else "🛠️ Test / Simulation Chips:",
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.primary
                                 )
-                                if (!isOnline) {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                    ) {
-                                        Text(
-                                            text = "ఆఫ్‌లైన్ ✓",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                val testChips = when (activeLang) {
-                                    "te" -> listOf(
-                                        "🍵 టీ 20 మరియు సమోసా 30" to "టీ 20 మరియు సమోసా 30",
-                                        "⛽ పెట్రోల్ 350 రూపాయలు" to "పెట్రోల్ 350 రూపాయలు",
-                                        "🛒 కూరగాయలు 250" to "కూరగాయలు 250 రూపాయలు",
-                                        "🤝 రమేష్ కి 2000 అప్పు ఇచ్చాను" to "రమేష్ కి 2000 అప్పు ఇచ్చాను",
-                                        "💵 రమేష్ 1000 తిరిగి ఇచ్చాడు" to "రమేష్ 1000 తిరిగి ఇచ్చాడు",
-                                        "📅 నెల బడ్జెట్ 45000 గా పెట్టు" to "నెల బడ్జెట్ 45000 గా పెట్టు",
-                                        "📊 ఈ రోజు ఎంత ఖర్చు చేశాను?" to "ఈ రోజు ఎంత ఖర్చు చేశాను?",
-                                        "🌾 కిరాణా సామాను 1200" to "కిరాణా సామాను 1200 రూపాయలు"
-                                    )
-                                    "hi" -> listOf(
-                                        "🍵 चाय 20 और समोसा 30" to "चाय 20 और समोसा 30",
-                                        "⛽ पेट्रोल 350 रुपये" to "पेट्रोल 350 रुपये",
-                                        "🛒 राशन 250 रुपये" to "राशन 250 रुपये",
-                                        "🤝 रमेश को 2000 उधार दिए" to "रमेश को 2000 उधार दिए",
-                                        "💵 रमेश ने 1000 वापस किए" to "रमेश ने 1000 वापस किए",
-                                        "📅 महीने का बजट 45000 सेट करो" to "महीने का बजट 45000 सेट करो",
-                                        "📊 आज का खर्च कितना है?" to "आज का खर्च कितना है?"
-                                    )
-                                    else -> listOf(
-                                        "🍵 Tea 20 and Samosa 30" to "Tea 20 and samosa 30",
-                                        "⛽ Petrol 350 rupees" to "Petrol 350 rupees",
-                                        "🛒 Groceries 250" to "Groceries 250",
-                                        "🤝 Lent 2000 to Ramesh" to "Lent 2000 to Ramesh",
-                                        "💵 Ramesh returned 1000" to "Ramesh returned 1000",
-                                        "📅 Set monthly budget 45000" to "Set monthly budget to 45000",
-                                        "📊 How much spent today?" to "How much did I spend today?"
-                                    )
-                                }
+                                val testChips = if (activeLang == "te") listOf(
+                                    "🍵 టీ 20 మరియు సమోసా 30" to "టీ 20 మరియు సమోసా 30",
+                                    "⛽ పెట్రోల్ 350 రూపాయలు" to "పెట్రోల్ 350 రూపాయలు",
+                                    "🛒 కూరగాయలు 250" to "కూరగాయలు 250 రూపాయలు",
+                                    "🤝 రమేష్ కి 2000 అప్పు ఇచ్చాను" to "రమేష్ కి 2000 అప్పు ఇచ్చాను",
+                                    "💵 రమేష్ 1000 తిరిగి ఇచ్చాడు" to "రమేష్ 1000 తిరిగి ఇచ్చాడు",
+                                    "📅 నెల బడ్జెట్ 45000 గా పెట్టు" to "నెల బడ్జెట్ 45000 గా పెట్టు",
+                                    "📊 ఈ రోజు ఎంత ఖర్చు చేశాను?" to "ఈ రోజు ఎంత ఖర్చు చేశాను?",
+                                    "🌾 కిరాణా సామాను 1200" to "కిరాణా సామాను 1200 రూపాయలు"
+                                ) else listOf(
+                                    "🍵 Tea 20 and Samosa 30" to "Tea 20 and samosa 30",
+                                    "⛽ Petrol 350 rupees" to "Petrol 350 rupees",
+                                    "🛒 Groceries 250" to "Groceries 250",
+                                    "🤝 Lent 2000 to Ramesh" to "Lent 2000 to Ramesh",
+                                    "💵 Ramesh returned 1000" to "Ramesh returned 1000",
+                                    "📅 Set monthly budget 45000" to "Set monthly budget to 45000",
+                                    "📊 How much spent today?" to "How much did I spend today?"
+                                )
 
                                 items(testChips) { (label, phrase) ->
                                     Surface(
                                         shape = RoundedCornerShape(12.dp),
-                                        color = if (!isOnline) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant,
+                                        color = MaterialTheme.colorScheme.surface,
                                         border = androidx.compose.foundation.BorderStroke(
                                             1.dp,
                                             MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
@@ -405,23 +349,22 @@ fun VoiceListeningDialog(
                 // Status text
                 Text(
                     text = when {
-                        !isOnline -> if (activeLang == "te") "⚡ ఆఫ్‌లైన్ వాయిస్ మోడ్: మాట్లాడండి లేదా చిప్స్ నొక్కండి" else if (activeLang == "hi") "⚡ ऑफ़लाइन मोड: बोलें या चिप्स चुनें" else "⚡ Offline Voice Mode: Speak or tap chips"
-                        errorMessage != null -> if (activeLang == "te") "వాయిస్ సమస్య" else if (activeLang == "hi") "वॉइस समस्या" else "Voice Input Issue"
-                        isListening -> if (activeLang == "te") "వింటున్నాను... మాట్లాడండి" else if (activeLang == "hi") "सुन रहा हूँ... बोलिए" else "Listening... speak now"
-                        else -> if (activeLang == "te") "సిద్ధంగా ఉన్నాను" else if (activeLang == "hi") "तैयार हूँ" else "Ready"
+                        errorMessage != null -> if (activeLang == "te") "వాయిస్ సమస్య" else "Voice Input Issue"
+                        isListening -> if (activeLang == "te") "వింటున్నాను... మాట్లాడండి" else "Listening... speak now"
+                        else -> if (activeLang == "te") "సిద్ధంగా ఉన్నాను" else "Ready"
                     },
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         fontSize = 17.sp
                     ),
-                    color = if (errorMessage != null && isOnline) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    color = if (errorMessage != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Error message banner if any (suppressed offline to prevent harsh error toasts/banners)
-                AnimatedVisibility(visible = errorMessage != null && isOnline) {
+                // Error message banner (shown online and offline without silent swallowing)
+                AnimatedVisibility(visible = errorMessage != null) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             text = errorMessage ?: "",
@@ -446,7 +389,7 @@ fun VoiceListeningDialog(
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (activeLang == "te") "మళ్లీ ప్రయత్నించండి" else if (activeLang == "hi") "पुनः प्रयास" else "Retry",
+                                    text = if (activeLang == "te") "మళ్లీ ప్రయత్నించండి" else "Retry",
                                     style = MaterialTheme.typography.labelMedium
                                 )
                             }
@@ -463,7 +406,7 @@ fun VoiceListeningDialog(
                                     Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = if (activeLang == "te") "గూగుల్ వాయిస్" else if (activeLang == "hi") "Google वॉइस" else "System Voice",
+                                        text = if (activeLang == "te") "సిస్టమ్ వాయిస్" else "System Voice",
                                         style = MaterialTheme.typography.labelMedium
                                     )
                                 }
@@ -495,8 +438,6 @@ fun VoiceListeningDialog(
                     Text(
                         text = if (activeLang == "te")
                             "మైక్రోఫోన్ ద్వారా మీ ఖర్చు లేదా అప్పు వివరాలను మాట్లాడండి"
-                        else if (activeLang == "hi")
-                            "माइक के माध्यम से अपने खर्च या उधारी का विवरण बोलें"
                         else
                             "Speak your expense or loan details into the microphone",
                         style = MaterialTheme.typography.bodySmall,
@@ -514,6 +455,18 @@ fun VoiceListeningDialog(
                         color = MaterialTheme.colorScheme.outline,
                         textAlign = TextAlign.Center
                     )
+                    if (onInstallTtsData != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedButton(
+                            onClick = onInstallTtsData,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(
+                                text = "తెలుగు వాయిస్ ఇన్‌స్టాల్ చేయండి (Google TTS)",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
                 }
 
                 if (isListening && onDoneListening != null) {

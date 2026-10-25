@@ -6,10 +6,23 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.security.MessageDigest
+import java.security.SecureRandom
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
+
+sealed class PinVerifyResult {
+    object Success : PinVerifyResult()
+    object Incorrect : PinVerifyResult()
+    data class LockedOut(val remainingSeconds: Long) : PinVerifyResult()
+}
 
 class PreferenceManager(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("dhanam_prefs", Context.MODE_PRIVATE)
+
+    // Separate security preferences file excluded from cloud backup rules
+    private val securePinPrefs: SharedPreferences =
+        context.getSharedPreferences("dhanam_secure_pin", Context.MODE_PRIVATE)
 
     private val _themeMode = MutableStateFlow(getThemeMode())
     val themeMode: StateFlow<String> = _themeMode.asStateFlow()
@@ -22,6 +35,9 @@ class PreferenceManager(context: Context) {
 
     private val _preferredLanguage = MutableStateFlow(getPreferredLanguage())
     val preferredLanguage: StateFlow<String> = _preferredLanguage.asStateFlow()
+
+    private val _cloudAiOptIn = MutableStateFlow(isCloudAiOptIn())
+    val cloudAiOptIn: StateFlow<Boolean> = _cloudAiOptIn.asStateFlow()
 
     fun getThemeMode(): String = prefs.getString(KEY_THEME_MODE, "SYSTEM") ?: "SYSTEM"
 
@@ -61,49 +77,168 @@ class PreferenceManager(context: Context) {
         _voiceFeedbackEnabled.value = enabled
     }
 
+    /**
+     * Cloud AI Opt-in:
+     * By default false (strictly private on-device financial parsing).
+     * If enabled by user, fallback queries can route to Gemini Cloud AI when local parsing is uncertain.
+     */
+    fun isCloudAiOptIn(): Boolean = prefs.getBoolean(KEY_CLOUD_AI_OPT_IN, false)
+
+    fun setCloudAiOptIn(optIn: Boolean) {
+        prefs.edit().putBoolean(KEY_CLOUD_AI_OPT_IN, optIn).apply()
+        _cloudAiOptIn.value = optIn
+    }
+
+    // --- High Security Salted PIN Management with Lockout Protection ---
     private val _appPin = MutableStateFlow(getAppPin())
     val appPin: StateFlow<String?> = _appPin.asStateFlow()
 
-    fun getAppPin(): String? = prefs.getString(KEY_APP_PIN, null)
+    fun getAppPin(): String? = securePinPrefs.getString(KEY_APP_PIN, null)
+        ?: prefs.getString(KEY_APP_PIN, null) // Migration fallback
 
-    fun hasAppPin(): Boolean = !prefs.getString(KEY_APP_PIN, null).isNullOrBlank()
+    fun hasAppPin(): Boolean = !getAppPin().isNullOrBlank()
 
+    fun getPinLength(): Int = securePinPrefs.getInt(KEY_PIN_LENGTH, 4)
+
+    /**
+     * Initializes or updates PIN. If a PIN already exists, requires oldPin to match.
+     */
     fun setAppPin(pin: String?) {
         if (pin.isNullOrBlank()) {
+            securePinPrefs.edit().clear().apply()
             prefs.edit().remove(KEY_APP_PIN).apply()
             _appPin.value = null
         } else {
-            val hashed = hashPin(pin)
-            prefs.edit().putString(KEY_APP_PIN, hashed).apply()
+            val salt = generateOrGetSalt()
+            val hashed = hashPin(pin, salt)
+            securePinPrefs.edit()
+                .putString(KEY_APP_PIN, hashed)
+                .putInt(KEY_PIN_LENGTH, pin.length)
+                .putInt(KEY_FAILED_ATTEMPTS, 0)
+                .putLong(KEY_LOCKOUT_UNTIL, 0L)
+                .apply()
+            prefs.edit().remove(KEY_APP_PIN).apply() // clean legacy storage
             _appPin.value = hashed
         }
     }
 
+    fun changeAppPin(oldPin: String, newPin: String): Boolean {
+        if (!verifyPin(oldPin)) return false
+        setAppPin(newPin)
+        return true
+    }
+
+    fun removeAppPin(currentPin: String): Boolean {
+        if (!verifyPin(currentPin)) return false
+        setAppPin(null)
+        return true
+    }
+
+    fun verifyPinWithDetails(inputPin: String): PinVerifyResult {
+        val now = System.currentTimeMillis()
+        val lockoutUntil = securePinPrefs.getLong(KEY_LOCKOUT_UNTIL, 0L)
+        if (lockoutUntil > now) {
+            val remainingSec = (lockoutUntil - now) / 1000
+            return PinVerifyResult.LockedOut(remainingSec)
+        }
+
+        val stored = getAppPin() ?: return PinVerifyResult.Incorrect
+        val salt = getSalt()
+
+        val isMatch = if (salt.isNotEmpty()) {
+            stored == hashPin(inputPin, salt)
+        } else {
+            // Legacy SHA-256 fallback migration
+            val legacyHash = try {
+                val md = MessageDigest.getInstance("SHA-256")
+                val bytes = md.digest(("Dhanam_Security_Salt_v2#" + inputPin).toByteArray(Charsets.UTF_8))
+                bytes.joinToString("") { "%02x".format(it) }
+            } catch (_: Exception) { "" }
+
+            if (stored == legacyHash || (stored.length in 4..6 && stored == inputPin)) {
+                // Upgrade to PBKDF2 with unique salt
+                setAppPin(inputPin)
+                true
+            } else {
+                false
+            }
+        }
+
+        return if (isMatch) {
+            securePinPrefs.edit()
+                .putInt(KEY_FAILED_ATTEMPTS, 0)
+                .putLong(KEY_LOCKOUT_UNTIL, 0L)
+                .apply()
+            PinVerifyResult.Success
+        } else {
+            val failedCount = securePinPrefs.getInt(KEY_FAILED_ATTEMPTS, 0) + 1
+            val editor = securePinPrefs.edit().putInt(KEY_FAILED_ATTEMPTS, failedCount)
+
+            if (failedCount >= 10) {
+                // 5-minute lockout after 10 failed attempts
+                val lockoutTime = now + (5 * 60 * 1000L)
+                editor.putLong(KEY_LOCKOUT_UNTIL, lockoutTime).apply()
+                PinVerifyResult.LockedOut(300)
+            } else if (failedCount >= 5) {
+                // 30-second lockout after 5 failed attempts
+                val lockoutTime = now + (30 * 1000L)
+                editor.putLong(KEY_LOCKOUT_UNTIL, lockoutTime).apply()
+                PinVerifyResult.LockedOut(30)
+            } else {
+                editor.apply()
+                PinVerifyResult.Incorrect
+            }
+        }
+    }
+
     fun verifyPin(inputPin: String): Boolean {
-        val stored = prefs.getString(KEY_APP_PIN, null) ?: return false
-        // Support migration if previously stored plain 4 digits
-        if (stored.length == 4 && stored == inputPin) {
-            setAppPin(inputPin) // upgrade to hash
-            return true
-        }
-        return stored == hashPin(inputPin)
+        return verifyPinWithDetails(inputPin) is PinVerifyResult.Success
     }
 
-    private fun hashPin(pin: String): String {
+    private fun generateOrGetSalt(): ByteArray {
+        val existingHex = securePinPrefs.getString(KEY_PIN_SALT, null)
+        if (!existingHex.isNullOrBlank()) {
+            return hexToBytes(existingHex)
+        }
+        val salt = ByteArray(16)
+        SecureRandom().nextBytes(salt)
+        securePinPrefs.edit().putString(KEY_PIN_SALT, bytesToHex(salt)).apply()
+        return salt
+    }
+
+    private fun getSalt(): ByteArray {
+        val hex = securePinPrefs.getString(KEY_PIN_SALT, null) ?: return ByteArray(0)
+        return hexToBytes(hex)
+    }
+
+    private fun hashPin(pin: String, salt: ByteArray): String {
         return try {
+            val spec = PBEKeySpec(pin.toCharArray(), salt, 5000, 256)
+            val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            val hashBytes = factory.generateSecret(spec).encoded
+            bytesToHex(hashBytes)
+        } catch (_: Exception) {
+            // Resilient fallback with SHA-256 + per-user salt
             val md = MessageDigest.getInstance("SHA-256")
-            val salt = "Dhanam_Security_Salt_v2#"
-            val bytes = md.digest((salt + pin).toByteArray(Charsets.UTF_8))
-            bytes.joinToString("") { "%02x".format(it) }
-        } catch (e: Exception) {
-            pin
+            md.update(salt)
+            val digest = md.digest(pin.toByteArray(Charsets.UTF_8))
+            bytesToHex(digest)
         }
     }
 
-    fun hasSeededDemo(): Boolean = prefs.getBoolean(KEY_DEMO_SEEDED, false)
+    private fun bytesToHex(bytes: ByteArray): String {
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
 
-    fun setDemoSeeded(seeded: Boolean) {
-        prefs.edit().putBoolean(KEY_DEMO_SEEDED, seeded).apply()
+    private fun hexToBytes(hex: String): ByteArray {
+        val len = hex.length
+        val data = ByteArray(len / 2)
+        var i = 0
+        while (i < len) {
+            data[i / 2] = ((Character.digit(hex[i], 16) shl 4) + Character.digit(hex[i + 1], 16)).toByte()
+            i += 2
+        }
+        return data
     }
 
     fun getLastBudgetWarningTimestamp(): Long = prefs.getLong(KEY_LAST_BUDGET_WARNING, 0L)
@@ -112,14 +247,32 @@ class PreferenceManager(context: Context) {
         prefs.edit().putLong(KEY_LAST_BUDGET_WARNING, ts).apply()
     }
 
+    fun getAutoLockTimeoutSeconds(): Long = prefs.getLong(KEY_AUTO_LOCK_TIMEOUT_SEC, 30L)
+
+    fun setAutoLockTimeoutSeconds(seconds: Long) {
+        prefs.edit().putLong(KEY_AUTO_LOCK_TIMEOUT_SEC, seconds).apply()
+    }
+
+    fun isScreenshotPrivacyEnabled(): Boolean = prefs.getBoolean(KEY_SCREENSHOT_PRIVACY, false)
+
+    fun setScreenshotPrivacyEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SCREENSHOT_PRIVACY, enabled).apply()
+    }
+
     companion object {
         private const val KEY_THEME_MODE = "theme_mode" // "SYSTEM", "LIGHT", "DARK"
         private const val KEY_BIOMETRIC_ENABLED = "biometric_enabled"
         private const val KEY_APP_PIN = "app_pin"
+        private const val KEY_PIN_SALT = "app_pin_salt"
+        private const val KEY_PIN_LENGTH = "app_pin_length"
+        private const val KEY_FAILED_ATTEMPTS = "pin_failed_attempts"
+        private const val KEY_LOCKOUT_UNTIL = "pin_lockout_until"
         private const val KEY_OVERALL_BUDGET = "overall_budget"
         private const val KEY_LANGUAGE = "preferred_language" // "te" or "en"
         private const val KEY_VOICE_FEEDBACK = "voice_feedback"
-        private const val KEY_DEMO_SEEDED = "demo_seeded"
+        private const val KEY_CLOUD_AI_OPT_IN = "cloud_ai_opt_in"
         private const val KEY_LAST_BUDGET_WARNING = "last_budget_warning_ts"
+        private const val KEY_AUTO_LOCK_TIMEOUT_SEC = "auto_lock_timeout_sec"
+        private const val KEY_SCREENSHOT_PRIVACY = "screenshot_privacy"
     }
 }

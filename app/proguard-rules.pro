@@ -1,21 +1,57 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Project specific ProGuard rules for Dhanam AI
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Optimization & Stacktrace
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Moshi & JSON Models
+-keepclassmembers class * {
+    @com.squareup.moshi.Json <fields>;
+}
+-keep class * implements com.squareup.moshi.JsonAdapter { *; }
+-keep class com.example.ai.GeminiRequest { *; }
+-keep class com.example.ai.GeminiResponse { *; }
+-keep class com.example.ai.Candidate { *; }
+-keep class com.example.ai.ResponseContent { *; }
+-keep class com.example.ai.ContentPartContainer { *; }
+-keep class com.example.ai.TextPart { *; }
+-keep class com.example.ai.GenerationConfig { *; }
+-keep class com.example.ai.ParsedItem { *; }
+-keep class com.example.ai.ParsedVoiceBatch { *; }
+-keep class com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory { *; }
+-dontwarn com.squareup.moshi.**
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Retrofit
+-keepclassmembers,allowobfuscation interface * {
+    @retrofit2.http.* <methods>;
+}
+-dontwarn retrofit2.**
+-keep,allowobfuscation interface com.example.ai.GeminiApi { *; }
+
+# OkHttp & Okio
+-dontwarn okhttp3.**
+-dontwarn okio.**
+
+# Room Database & Entities
+-keep class * extends androidx.room.RoomDatabase
+-dontwarn androidx.room.paging.**
+-keep @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao interface * { *; }
+-keep class com.example.data.model.** { *; }
+-keep class * implements androidx.room.migration.Migration
+
+# WorkManager
+-keep class * extends androidx.work.Worker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+-keep class * extends androidx.work.ListenableWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+
+# AndroidX Biometric & Security
+-keep class androidx.biometric.** { *; }
+-dontwarn androidx.biometric.**
+
+# Firebase & App Check
+-keep class com.google.firebase.** { *; }
+-dontwarn com.google.firebase.**

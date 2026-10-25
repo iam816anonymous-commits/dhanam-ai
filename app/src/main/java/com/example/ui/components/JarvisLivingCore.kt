@@ -39,6 +39,7 @@ import kotlin.math.sin
 enum class JarvisCoreState {
     IDLE,
     LISTENING,
+    THINKING,
     PROCESSING,
     NOTING,
     SPEAKING
@@ -75,8 +76,31 @@ fun JarvisLivingCore(
         }
     }
 
-    val powerManager = remember(context) { context.getSystemService(Context.POWER_SERVICE) as? PowerManager }
-    val isPowerSaveMode = remember(context) { powerManager?.isPowerSaveMode == true }
+    val activityManager = remember(context) { context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager }
+    val isLowRamDevice = remember(activityManager) { activityManager?.isLowRamDevice == true }
+
+    var isPowerSaveMode by remember {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        mutableStateOf(pm?.isPowerSaveMode == true)
+    }
+
+    DisposableEffect(context) {
+        val filter = android.content.IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: android.content.Intent?) {
+                val pm = c?.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                isPowerSaveMode = pm?.isPowerSaveMode == true
+            }
+        }
+        context.registerReceiver(receiver, filter)
+        onDispose {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (_: Exception) {}
+        }
+    }
+
+    val shouldThrottle = isPowerSaveMode || isLowRamDevice
 
     val infiniteTransition = rememberInfiniteTransition(label = "JarvisInfinite")
 
@@ -86,7 +110,11 @@ fun JarvisLivingCore(
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
             animation = tween(
-                durationMillis = if (state == JarvisCoreState.PROCESSING) 3000 else 10000,
+                durationMillis = when (state) {
+                    JarvisCoreState.PROCESSING -> 2400
+                    JarvisCoreState.THINKING -> 3600
+                    else -> 10000
+                },
                 easing = LinearEasing
             ),
             repeatMode = RepeatMode.Restart
@@ -100,7 +128,11 @@ fun JarvisLivingCore(
         targetValue = 0f,
         animationSpec = infiniteRepeatable(
             animation = tween(
-                durationMillis = if (state == JarvisCoreState.PROCESSING) 2000 else 7000,
+                durationMillis = when (state) {
+                    JarvisCoreState.PROCESSING -> 1800
+                    JarvisCoreState.THINKING -> 2800
+                    else -> 7000
+                },
                 easing = LinearEasing
             ),
             repeatMode = RepeatMode.Restart
@@ -116,6 +148,7 @@ fun JarvisLivingCore(
             animation = tween(
                 durationMillis = when (state) {
                     JarvisCoreState.PROCESSING -> 450
+                    JarvisCoreState.THINKING -> 500
                     JarvisCoreState.NOTING -> 350
                     JarvisCoreState.SPEAKING -> 600
                     else -> 1800
@@ -127,7 +160,7 @@ fun JarvisLivingCore(
         label = "breathingPulse"
     )
 
-    // Radiant ripple alpha for listening / noting
+    // Radiant ripple alpha for listening / noting / thinking
     val rippleAlpha by infiniteTransition.animateFloat(
         initialValue = 0.8f,
         targetValue = 0.0f,
@@ -155,6 +188,11 @@ fun JarvisLivingCore(
             Color(0xFF00B0FF), // Deep Sky Blue
             Color(0xFF80D8FF)
         )
+        JarvisCoreState.THINKING -> Triple(
+            Color(0xFF7C4DFF), // Electric Violet / Synaptic Purple
+            Color(0xFFE040FB), // Neon Magenta
+            Color(0xFFEA80FC)
+        )
         JarvisCoreState.PROCESSING -> Triple(
             Color(0xFFFF9100), // Energetic Amber
             Color(0xFFFF3D00), // Radiant Orange
@@ -178,21 +216,21 @@ fun JarvisLivingCore(
     }
 
     // Audio reactivity multiplier
-    val reactiveAudioBoost = if (state == JarvisCoreState.LISTENING && !isPowerSaveMode && isAppResumed) {
+    val reactiveAudioBoost = if (state == JarvisCoreState.LISTENING && !shouldThrottle && isAppResumed) {
         (rmsDb.coerceIn(0f, 15f) / 15f) * 0.25f
     } else 0f
 
-    val effectivePulse = if (!isAppResumed) 1.0f else (breathingPulse + reactiveAudioBoost)
+    val effectivePulse = if (!isAppResumed || shouldThrottle) 1.0f else (breathingPulse + reactiveAudioBoost)
 
     val effectiveOuterRotation = when {
         !isAppResumed -> 0f
-        isPowerSaveMode -> 45f
+        shouldThrottle -> 45f
         else -> outerRotation
     }
 
     val effectiveMiddleRotation = when {
         !isAppResumed -> 0f
-        isPowerSaveMode -> 30f
+        shouldThrottle -> 30f
         else -> middleRotation
     }
 
@@ -204,8 +242,8 @@ fun JarvisLivingCore(
             val center = Offset(size.width / 2f, size.height / 2f)
             val maxRadius = size.minDimension / 2f
 
-            // 1. Expanding reactive soundwave ripples when listening or noting
-            if (isAppResumed && !isPowerSaveMode && (state == JarvisCoreState.LISTENING || state == JarvisCoreState.NOTING)) {
+            // 1. Expanding reactive soundwave ripples when listening, noting or thinking
+            if (isAppResumed && !shouldThrottle && (state == JarvisCoreState.LISTENING || state == JarvisCoreState.NOTING || state == JarvisCoreState.THINKING)) {
                 drawCircle(
                     color = primaryColor.copy(alpha = rippleAlpha * 0.45f),
                     radius = maxRadius * rippleRadiusFactor,
@@ -231,7 +269,11 @@ fun JarvisLivingCore(
                 )
 
                 // 3 segmented energy arcs
-                val arcSweep = if (state == JarvisCoreState.PROCESSING) 80f else 60f
+                val arcSweep = when (state) {
+                    JarvisCoreState.PROCESSING -> 85f
+                    JarvisCoreState.THINKING -> 75f
+                    else -> 60f
+                }
                 for (angle in listOf(0f, 120f, 240f)) {
                     drawArc(
                         brush = Brush.sweepGradient(

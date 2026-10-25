@@ -81,17 +81,35 @@ class DhanamBudgetKhataWorker(
                         loan.dueDateMillis!! in now..window48h
             }
 
+            val overdueLoans = loans.filter { loan ->
+                !loan.isSettled &&
+                        loan.dueDateMillis != null &&
+                        loan.dueDateMillis!! < now
+            }
+
             for (loan in upcomingLoans) {
-                NotificationReminderManager.showRepaymentReminderNotification(
-                    context = context,
-                    loan = loan,
-                    isTelugu = isTelugu
-                )
+                if (NotificationReminderManager.shouldNotifyLoan(context, loan.id)) {
+                    NotificationReminderManager.showRepaymentReminderNotification(
+                        context = context,
+                        loan = loan,
+                        isTelugu = isTelugu
+                    )
+                }
+            }
+
+            for (loan in overdueLoans) {
+                if (NotificationReminderManager.shouldNotifyLoan(context, loan.id)) {
+                    NotificationReminderManager.showOverdueLoanNotification(
+                        context = context,
+                        loan = loan,
+                        isTelugu = isTelugu
+                    )
+                }
             }
 
             Result.success()
         } catch (e: Exception) {
-            e.printStackTrace()
+            com.example.util.AppLogger.e("DhanamBudgetKhataWorker", "Worker failed during execution", e)
             Result.retry()
         }
     }

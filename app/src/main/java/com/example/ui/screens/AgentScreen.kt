@@ -116,13 +116,7 @@ fun AgentScreen(
     val speechError by viewModel.speechError.collectAsState()
     val isTeluguTtsAvailable by viewModel.isTeluguTtsAvailable.collectAsState()
 
-    val coreState = when {
-        isNoting -> JarvisCoreState.NOTING
-        isProcessing -> JarvisCoreState.PROCESSING
-        isListening -> JarvisCoreState.LISTENING
-        isSpeaking -> JarvisCoreState.SPEAKING
-        else -> JarvisCoreState.IDLE
-    }
+    val coreState by viewModel.agentState.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
     var showAudioPermissionRationale by remember { mutableStateOf(false) }
@@ -215,15 +209,12 @@ fun AgentScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    JarvisLivingCore(state = coreState, rmsDb = rmsDb, coreSize = 22.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isTelugu) "జార్విస్ AI కోర్ (Jarvis Core)" else "Jarvis AI Living Core",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
+                com.example.ui.components.AgentStatusPill(
+                    state = coreState,
+                    rmsDb = rmsDb,
+                    isTelugu = isTelugu,
+                    onClick = { onMicClicked() }
+                )
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // Clear chat button (frees memory on low-RAM devices)
@@ -317,11 +308,16 @@ fun AgentScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             modifier = Modifier.fillMaxWidth()
                         ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
                             Text(
                                 text = when (coreState) {
                                     JarvisCoreState.NOTING -> if (isTelugu) "⚡ జార్విస్ ఖర్చులు నమోదు చేస్తోంది..." else "⚡ JARVIS: NOTING TRANSACTIONS..."
                                     JarvisCoreState.LISTENING -> if (isTelugu) "🎙️ వింటోంది..." else "🎙️ LISTENING..."
-                                    JarvisCoreState.PROCESSING -> if (isTelugu) "🧠 లెక్కిస్తోంది & వర్గీకరిస్తోంది..." else "🧠 ANALYZING & PARSING..."
+                                    JarvisCoreState.THINKING -> if (isTelugu) "🧠 ఆలోచిస్తోంది & విశ్లేషిస్తోంది..." else "🧠 THINKING & ANALYZING..."
+                                    JarvisCoreState.PROCESSING -> if (isTelugu) "⚡ లెక్కిస్తోంది & వర్గీకరిస్తోంది..." else "⚡ PROCESSING & COMPUTING..."
                                     JarvisCoreState.SPEAKING -> if (isTelugu) "🔊 సమాధానం వినిపిస్తోంది..." else "🔊 SPEAKING CONFIRMATION..."
                                     JarvisCoreState.IDLE -> if (isTelugu) "✨ జార్విస్ సిద్ధంగా ఉంది (నొక్కండి)" else "✨ JARVIS CORE ACTIVE (TAP TO SPEAK)"
                                 },
@@ -329,10 +325,27 @@ fun AgentScreen(
                                 color = when (coreState) {
                                     JarvisCoreState.NOTING -> Color(0xFF00E676)
                                     JarvisCoreState.LISTENING -> Color(0xFF00B0FF)
+                                    JarvisCoreState.THINKING -> Color(0xFF7C4DFF)
                                     JarvisCoreState.PROCESSING -> Color(0xFFFF9100)
+                                    JarvisCoreState.SPEAKING -> Color(0xFF00B0FF)
                                     else -> MaterialTheme.colorScheme.primary
                                 }
                             )
+
+                            if (coreState != JarvisCoreState.IDLE) {
+                                com.example.ui.components.AgentEqualizerBars(
+                                    color = when (coreState) {
+                                        JarvisCoreState.NOTING -> Color(0xFF00E676)
+                                        JarvisCoreState.LISTENING -> Color(0xFF00B0FF)
+                                        JarvisCoreState.THINKING -> Color(0xFF7C4DFF)
+                                        JarvisCoreState.PROCESSING -> Color(0xFFFF9100)
+                                        else -> MaterialTheme.colorScheme.primary
+                                    },
+                                    isActive = true,
+                                    rmsDb = rmsDb
+                                )
+                            }
+                        }
 
                             if (viewModel.voiceAgentManager.isEmulator()) {
                                 Surface(
@@ -362,6 +375,24 @@ fun AgentScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2
                         )
+
+                        if (isTelugu && !isTeluguTtsAvailable) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                                    .clickable { viewModel.voiceAgentManager.openInstallTtsData(context) }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "🔊 ఫోన్‌లో తెలుగు వాయిస్ లేదు (ఇన్‌స్టాల్ చేయడానికి నొక్కండి)",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
                 }
 

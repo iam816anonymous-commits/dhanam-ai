@@ -3,6 +3,7 @@ package com.example.ui.viewmodel
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.DhanamApplication
@@ -50,7 +51,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val expenseDao = app.database.expenseDao()
     private val loanDao = app.database.loanDao()
     private val budgetDao = app.database.budgetDao()
-    private val preferenceManager = app.preferenceManager
+    val preferenceManager = app.preferenceManager
     val voiceAgentManager = VoiceAgentManager(application)
 
     private val agentEngine = ExpenseAgentEngine(expenseDao, loanDao, budgetDao, preferenceManager, app.merchantCache)
@@ -130,8 +131,65 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _lastJarvisNote = MutableStateFlow<String?>(null)
     val lastJarvisNote: StateFlow<String?> = _lastJarvisNote.asStateFlow()
 
+    private val _isThinking = MutableStateFlow(false)
+    val isThinking: StateFlow<Boolean> = _isThinking.asStateFlow()
+
     private val _isProcessingAgent = MutableStateFlow(false)
     val isProcessingAgent: StateFlow<Boolean> = _isProcessingAgent.asStateFlow()
+
+    // Unified Real-Time Visual Agent State Stream for global UI indicators
+    val agentState: StateFlow<com.example.ui.components.JarvisCoreState> = combine(
+        voiceAgentManager.isListening,
+        _isThinking,
+        _isProcessingAgent,
+        _isNoting,
+        voiceAgentManager.isSpeaking
+    ) { listening, thinking, processing, noting, speaking ->
+        when {
+            noting -> com.example.ui.components.JarvisCoreState.NOTING
+            processing -> com.example.ui.components.JarvisCoreState.PROCESSING
+            thinking -> com.example.ui.components.JarvisCoreState.THINKING
+            listening -> com.example.ui.components.JarvisCoreState.LISTENING
+            speaking -> com.example.ui.components.JarvisCoreState.SPEAKING
+            else -> com.example.ui.components.JarvisCoreState.IDLE
+        }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        com.example.ui.components.JarvisCoreState.IDLE
+    )
+
+    // Real-Time Agent On-Screen Touch & Physical Interaction Stream
+    private val _activeTouchInteraction = MutableStateFlow<com.example.ui.components.AgentTouchInteraction?>(null)
+    val activeTouchInteraction: StateFlow<com.example.ui.components.AgentTouchInteraction?> = _activeTouchInteraction.asStateFlow()
+
+    fun triggerAgentTouch(
+        titleTe: String,
+        titleEn: String,
+        subTe: String = "",
+        subEn: String = "",
+        targetXFraction: Float = 0.5f,
+        targetYFraction: Float = 0.5f,
+        iconEmoji: String = "👆",
+        durationMs: Long = 2800L
+    ) {
+        val interaction = com.example.ui.components.AgentTouchInteraction(
+            actionTitleTe = titleTe,
+            actionTitleEn = titleEn,
+            actionSubtitleTe = subTe,
+            actionSubtitleEn = subEn,
+            targetXFraction = targetXFraction,
+            targetYFraction = targetYFraction,
+            iconEmoji = iconEmoji
+        )
+        _activeTouchInteraction.value = interaction
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(durationMs)
+            if (_activeTouchInteraction.value?.id == interaction.id) {
+                _activeTouchInteraction.value = null
+            }
+        }
+    }
 
     private val _savingsTips = MutableStateFlow<List<String>>(emptyList())
     val savingsTips: StateFlow<List<String>> = _savingsTips.asStateFlow()
@@ -292,8 +350,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    val isCloudAiOptIn: StateFlow<Boolean> = preferenceManager.cloudAiOptIn
+
+    fun setCloudAiOptIn(optIn: Boolean) {
+        preferenceManager.setCloudAiOptIn(optIn)
+    }
+
     fun setAppPin(pin: String?) {
         preferenceManager.setAppPin(pin)
+    }
+
+    fun changeAppPin(oldPin: String, newPin: String): Boolean {
+        return preferenceManager.changeAppPin(oldPin, newPin)
+    }
+
+    fun removeAppPin(currentPin: String): Boolean {
+        return preferenceManager.removeAppPin(currentPin)
     }
 
     fun verifyAppPin(pin: String): Boolean {
@@ -436,16 +508,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun processAgentInput(input: String) {
-        if (input.isBlank() || _isProcessingAgent.value) return
+        if (input.isBlank() || _isProcessingAgent.value || _isThinking.value) return
 
         val isTe = preferenceManager.getPreferredLanguage() == "te" || input.any { it in '\u0C00'..'\u0C7F' }
         val processedInput = com.example.voice.VoicePostProcessor.filterTranscript(input, isTe)
 
         val userMsg = AgentChatMessage(isUser = true, text = processedInput)
         _agentMessages.value = _agentMessages.value + userMsg
-        _isProcessingAgent.value = true
+        
+        // Instant visual feedback: Agent is thinking/analyzing intent
+        _isThinking.value = true
 
         viewModelScope.launch(Dispatchers.IO) {
+            // Give a short visible thinking frame for natural perception, then transition to processing
+            kotlinx.coroutines.delay(200)
+            _isThinking.value = false
+            _isProcessingAgent.value = true
+
             val result = agentEngine.processUserInput(processedInput, preferenceManager.getPreferredLanguage())
             val agentResponse = AgentChatMessage(
                 isUser = false,
@@ -456,28 +535,140 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _agentMessages.value = _agentMessages.value + agentResponse
             _isProcessingAgent.value = false
 
-            // Living Jarvis Noting feedback
+            // Living Jarvis Noting feedback with visible on-screen touch animation
             val hasItems = result.recordedExpenses.isNotEmpty() || result.recordedExpense != null ||
                     result.recordedLoans.isNotEmpty() || result.recordedLoan != null
             if (hasItems) {
                 _isNoting.value = true
                 val count = result.recordedExpenses.size.coerceAtLeast(1)
                 _lastJarvisNote.value = "⚡ Jarvis noted $count item${if (count > 1) "s" else ""} (₹${result.totalRecordedAmount.toInt()})"
+
+                // Trigger visible on-screen touch pointer & ripple
+                if (result.recordedExpenses.isNotEmpty() || result.recordedExpense != null) {
+                    val firstExp = result.recordedExpense ?: result.recordedExpenses.first()
+                    triggerAgentTouch(
+                        titleTe = "ఖర్చు నమోదు చేసింది: ₹${result.totalRecordedAmount.toInt()}",
+                        titleEn = "Recorded: ₹${result.totalRecordedAmount.toInt()} (${firstExp.category})",
+                        subTe = if (count > 1) "$count ఖర్చులు లెడ్జర్ లో రాసింది" else "'${firstExp.title}' విభాగం: ${firstExp.category}",
+                        subEn = if (count > 1) "Added $count transactions to ledger" else "Added '${firstExp.title}'",
+                        targetXFraction = 0.5f,
+                        targetYFraction = 0.42f,
+                        iconEmoji = "✍️"
+                    )
+                } else if (result.recordedLoans.isNotEmpty() || result.recordedLoan != null) {
+                    val firstLoan = result.recordedLoan ?: result.recordedLoans.first()
+                    triggerAgentTouch(
+                        titleTe = "అప్పు నమోదు చేసింది: ₹${firstLoan.amount.toInt()}",
+                        titleEn = "Recorded Lending: ₹${firstLoan.amount.toInt()}",
+                        subTe = "${firstLoan.personName} ఖాతాలో రాసింది",
+                        subEn = "Added to ${firstLoan.personName}'s khata",
+                        targetXFraction = 0.5f,
+                        targetYFraction = 0.42f,
+                        iconEmoji = "🤝"
+                    )
+                }
+
                 viewModelScope.launch {
                     delay(2500)
                     _isNoting.value = false
                 }
+            } else if (result.message.contains("రద్దు") || result.message.contains("Undid")) {
+                triggerAgentTouch(
+                    titleTe = "లావాదేవీ రద్దు చేసింది",
+                    titleEn = "Undid Last Transaction",
+                    subTe = "లెడ్జర్ నుండి తీసివేయబడింది",
+                    subEn = "Removed latest record from ledger",
+                    targetXFraction = 0.5f,
+                    targetYFraction = 0.45f,
+                    iconEmoji = "↩️"
+                )
+            } else if (result.message.contains("Settled") || result.message.contains("జమ")) {
+                triggerAgentTouch(
+                    titleTe = "బాకీ జమ చేసింది",
+                    titleEn = "Applied Loan Repayment",
+                    subTe = "ఖాటా లెడ్జర్ నవీకరించబడింది",
+                    subEn = "Updated borrower's khata",
+                    targetXFraction = 0.5f,
+                    targetYFraction = 0.45f,
+                    iconEmoji = "💵"
+                )
             }
 
-            // In-app Jarvis navigation commands
+            // In-app Jarvis navigation commands with visible screen touch & tab tap animation
             when (result.navigationAction) {
-                "KHATA" -> _currentScreen.value = com.example.ui.navigation.Screen.KHATA
-                "EXPENSES" -> _currentScreen.value = com.example.ui.navigation.Screen.EXPENSES
-                "INSIGHTS" -> _currentScreen.value = com.example.ui.navigation.Screen.INSIGHTS
-                "SETTINGS" -> _currentScreen.value = com.example.ui.navigation.Screen.SETTINGS
-                "AGENT" -> _currentScreen.value = com.example.ui.navigation.Screen.AGENT
+                "KHATA" -> {
+                    triggerAgentTouch(
+                        titleTe = "ఖాతా ట్యాబ్ ఓపెన్ చేసింది",
+                        titleEn = "Tapped 'Khata' Screen",
+                        subTe = "అప్పులు & వసూళ్ల లెడ్జర్",
+                        subEn = "Switched to Lending Khata",
+                        targetXFraction = 0.50f,
+                        targetYFraction = 0.94f,
+                        iconEmoji = "🧭"
+                    )
+                    _currentScreen.value = com.example.ui.navigation.Screen.KHATA
+                }
+                "EXPENSES" -> {
+                    triggerAgentTouch(
+                        titleTe = "ఖర్చుల ట్యాబ్ ఓపెన్ చేసింది",
+                        titleEn = "Tapped 'Expenses' Screen",
+                        subTe = "ఖర్చుల పూర్తి చరిత్ర",
+                        subEn = "Switched to All Expenses",
+                        targetXFraction = 0.30f,
+                        targetYFraction = 0.94f,
+                        iconEmoji = "📊"
+                    )
+                    _currentScreen.value = com.example.ui.navigation.Screen.EXPENSES
+                }
+                "INSIGHTS" -> {
+                    triggerAgentTouch(
+                        titleTe = "రిపోర్ట్ ట్యాబ్ ఓపెన్ చేసింది",
+                        titleEn = "Tapped 'Report' Screen",
+                        subTe = "PDF & బడ్జెట్ విశ్లేషణ",
+                        subEn = "Switched to Monthly Report",
+                        targetXFraction = 0.70f,
+                        targetYFraction = 0.94f,
+                        iconEmoji = "📈"
+                    )
+                    _currentScreen.value = com.example.ui.navigation.Screen.INSIGHTS
+                }
+                "SETTINGS" -> {
+                    triggerAgentTouch(
+                        titleTe = "సెట్టింగ్స్ ఓపెన్ చేసింది",
+                        titleEn = "Tapped 'Settings' Screen",
+                        subTe = "భద్రత & భాష కాన్ఫిగరేషన్",
+                        subEn = "Switched to App Settings",
+                        targetXFraction = 0.90f,
+                        targetYFraction = 0.94f,
+                        iconEmoji = "⚙️"
+                    )
+                    _currentScreen.value = com.example.ui.navigation.Screen.SETTINGS
+                }
+                "AGENT" -> {
+                    triggerAgentTouch(
+                        titleTe = "జార్విస్ హోమ్ కి మారింది",
+                        titleEn = "Tapped 'Home' Screen",
+                        subTe = "హోమ్ సంభాషణ",
+                        subEn = "Returned to Main Entity",
+                        targetXFraction = 0.10f,
+                        targetYFraction = 0.94f,
+                        iconEmoji = "🤖"
+                    )
+                    _currentScreen.value = com.example.ui.navigation.Screen.AGENT
+                }
                 "LOCK" -> lockApp()
-                "REBALANCE" -> reallocateBudgetsAdaptively(preferenceManager.getOverallBudget())
+                "REBALANCE" -> {
+                    triggerAgentTouch(
+                        titleTe = "బడ్జెట్ రీబ్యాలెన్స్ చేసింది",
+                        titleEn = "Rebalanced Category Budgets",
+                        subTe = "ఖర్చుల సరళి ఆధారంగా బడ్జెట్ నవీకరించబడింది",
+                        subEn = "Adapted limits based on spending",
+                        targetXFraction = 0.5f,
+                        targetYFraction = 0.35f,
+                        iconEmoji = "⚖️"
+                    )
+                    reallocateBudgetsAdaptively(preferenceManager.getOverallBudget())
+                }
             }
 
             refreshMonthMetrics()
@@ -748,17 +939,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             context.startActivity(intent)
         } catch (e: Exception) {
-            val chooser = Intent.createChooser(
-                Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, reminderText)
+            try {
+                val chooser = Intent.createChooser(
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, reminderText)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    },
+                    "Send Friendly Repayment Reminder"
+                ).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                },
-                "Send Friendly Repayment Reminder"
-            ).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
+            } catch (ex2: Exception) {
+                com.example.util.AppLogger.e("MainViewModel", "Failed to launch reminder chooser", ex2)
+                Toast.makeText(context, "No app available to share message", Toast.LENGTH_SHORT).show()
             }
-            context.startActivity(chooser)
         }
     }
 

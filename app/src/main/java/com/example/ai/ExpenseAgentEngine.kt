@@ -255,64 +255,89 @@ class ExpenseAgentEngine(
             return executeSingleItem(parsedItems[0], isTelugu)
         }
 
-        // 4. Fallback to Gemini if online API is available and local parser yielded nothing
-        val prompt = AgentFinancialBrain.getStrictSystemPrompt(isTelugu) + "\n\nUser input: \"$trimmed\""
-        val geminiResponse = GeminiService.callGemini(prompt)
-        if (geminiResponse != null) {
-            try {
-                val clean = geminiResponse.trim()
-                    .removePrefix("```json")
-                    .removePrefix("```")
-                    .removeSuffix("```")
-                    .trim()
+        // 4. Fallback to Gemini Cloud AI ONLY if user has opted in via Settings.
+        // Guarantees private on-device processing by default.
+        if (preferenceManager.isCloudAiOptIn()) {
+            val prompt = AgentFinancialBrain.getStrictSystemPrompt(isTelugu) + "\n\nUser input: \"$trimmed\""
+            when (val geminiCall = GeminiService.callGeminiDetailed(prompt)) {
+                is GeminiCallResult.Success -> {
+                    try {
+                        val clean = geminiCall.text.trim()
+                            .removePrefix("```json")
+                            .removePrefix("```")
+                            .removeSuffix("```")
+                            .trim()
 
-                if (clean.startsWith("[")) {
-                    val array = JSONArray(clean)
-                    val items = mutableListOf<ParsedItem>()
-                    for (i in 0 until array.length()) {
-                        val obj = array.getJSONObject(i)
-                        val amt = obj.optDouble("amount", 0.0)
-                        if (amt > 0.0) {
-                            items.add(
-                                ParsedItem(
-                                    type = obj.optString("type", "EXPENSE"),
-                                    title = obj.optString("title", "Expense"),
-                                    amount = amt,
-                                    category = obj.optString("category", ExpenseCategory.OTHER.displayNameEn),
-                                    personName = obj.optString("personName", ""),
-                                    dueDateDays = obj.optInt("dueDateDays", 7),
-                                    paymentMode = obj.optString("paymentMode", "UPI"),
-                                    notes = obj.optString("notes", "")
+                        if (clean.startsWith("[")) {
+                            val array = JSONArray(clean)
+                            val items = mutableListOf<ParsedItem>()
+                            for (i in 0 until array.length()) {
+                                val obj = array.getJSONObject(i)
+                                val amt = obj.optDouble("amount", 0.0)
+                                if (amt > 0.0) {
+                                    items.add(
+                                        ParsedItem(
+                                            type = obj.optString("type", "EXPENSE"),
+                                            title = obj.optString("title", "Expense"),
+                                            amount = amt,
+                                            category = obj.optString("category", ExpenseCategory.OTHER.displayNameEn),
+                                            personName = obj.optString("personName", ""),
+                                            dueDateDays = obj.optInt("dueDateDays", 7),
+                                            paymentMode = obj.optString("paymentMode", "UPI"),
+                                            notes = obj.optString("notes", "")
+                                        )
+                                    )
+                                }
+                            }
+                            if (items.size >= 2) {
+                                return executeBatchItems(items, isTelugu)
+                            } else if (items.size == 1) {
+                                return executeSingleItem(items[0], isTelugu)
+                            }
+                        } else {
+                            val obj = JSONObject(clean)
+                            val amt = obj.optDouble("amount", 0.0)
+                            if (amt > 0.0) {
+                                return executeSingleItem(
+                                    ParsedItem(
+                                        type = obj.optString("type", "EXPENSE"),
+                                        title = obj.optString("title", "Expense"),
+                                        amount = amt,
+                                        category = obj.optString("category", ExpenseCategory.OTHER.displayNameEn),
+                                        personName = obj.optString("personName", ""),
+                                        dueDateDays = obj.optInt("dueDateDays", 7),
+                                        paymentMode = obj.optString("paymentMode", "UPI"),
+                                        notes = obj.optString("notes", "")
+                                    ),
+                                    isTelugu
                                 )
-                            )
+                            }
                         }
+                    } catch (e: Exception) {
+                        com.example.util.AppLogger.e("ExpenseAgentEngine", "Failed to parse Gemini JSON", e)
                     }
-                    if (items.size >= 2) {
-                        return executeBatchItems(items, isTelugu)
-                    } else if (items.size == 1) {
-                        return executeSingleItem(items[0], isTelugu)
-                    }
-                } else {
-                    val obj = JSONObject(clean)
-                    val amt = obj.optDouble("amount", 0.0)
-                    if (amt > 0.0) {
-                        return executeSingleItem(
-                            ParsedItem(
-                                type = obj.optString("type", "EXPENSE"),
-                                title = obj.optString("title", "Expense"),
-                                amount = amt,
-                                category = obj.optString("category", ExpenseCategory.OTHER.displayNameEn),
-                                personName = obj.optString("personName", ""),
-                                dueDateDays = obj.optInt("dueDateDays", 7),
-                                paymentMode = obj.optString("paymentMode", "UPI"),
-                                notes = obj.optString("notes", "")
-                            ),
-                            isTelugu
+                }
+                is GeminiCallResult.NetworkError -> {
+                    com.example.util.AppLogger.w("ExpenseAgentEngine", "Gemini NetworkError: ${geminiCall.message}")
+                    return AgentResult(
+                        success = false,
+                        type = ResultType.ERROR,
+                        message = if (isTelugu) "ఇంటర్నెట్ కనెక్షన్ సమస్య. ఆఫ్‌లైన్ లో నమోదు చేయడానికి ఖర్చు మరియు మొత్తం చెప్పండి (ఉదా: 'టీ 20')."
+                        else "Network connection unavailable. To log offline, say category and amount (e.g. 'Tea 20')."
+                    )
+                }
+                is GeminiCallResult.HttpError -> {
+                    com.example.util.AppLogger.w("ExpenseAgentEngine", "Gemini HttpError: ${geminiCall.code}")
+                    if (geminiCall.code == 429) {
+                        return AgentResult(
+                            success = false,
+                            type = ResultType.ERROR,
+                            message = if (isTelugu) "క్లౌడ్ AI లిమిట్ పూర్తయింది. స్థానిక ఆఫ్‌లైన్ విధానంలో రికార్డ్ చేయండి."
+                            else "Cloud AI rate limit reached. Please record using standard offline format."
                         )
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                else -> { /* NoKey or ParseError, fall through to default helpful message */ }
             }
         }
 
@@ -1381,9 +1406,44 @@ class ExpenseAgentEngine(
             )
         }
 
-        val targetLoan = allLoans.firstOrNull {
-            person.isNotBlank() && (it.personName.contains(person, ignoreCase = true) || person.contains(it.personName, ignoreCase = true))
-        } ?: allLoans.first()
+        val targetLoan = if (person.isNotBlank() && person !in listOf("Borrower", "Friend", "స్నేహితుడు")) {
+            allLoans.firstOrNull {
+                it.personName.contains(person, ignoreCase = true) || person.contains(it.personName, ignoreCase = true)
+            }
+        } else if (allLoans.size == 1) {
+            allLoans.first()
+        } else {
+            null
+        }
+
+        if (targetLoan == null) {
+            val activeBorrowers = allLoans.joinToString { it.personName }
+            val clarifyMsg = if (isTelugu) {
+                if (person.isNotBlank() && person !in listOf("Borrower", "Friend", "స్నేహితుడు")) {
+                    "ఖాతాలో '${person}' పేరుతో ఎలాంటి పెండింగ్ అప్పు కనుగొనబడలేదు. ఎవరి అప్పును చెల్లించాలో దయచేసి స్పష్టం చేయండి (ప్రస్తుతం బాకీ ఉన్నవారు: $activeBorrowers)."
+                } else {
+                    "ఎవరి అప్పు జమ చేయాలో దయచేసి పేరు చెప్పండి (ఉదా: రమేష్ 500 తిరిగి ఇచ్చాడు). ప్రస్తుతం బాకీ ఉన్నవారు: $activeBorrowers."
+                }
+            } else {
+                if (person.isNotBlank() && person !in listOf("Borrower", "Friend", "స్నేహితుడు")) {
+                    "No active loan found for '$person'. Please specify who repaid (Active borrowers: $activeBorrowers)."
+                } else {
+                    "Multiple pending loans found. Please specify who repaid (Active borrowers: $activeBorrowers)."
+                }
+            }
+            val suggestions = allLoans.take(3).map {
+                val amtInt = if (amount > 0.0) amount.toInt() else (it.amount - it.amountPaid).toInt()
+                if (isTelugu) "${it.personName} $amtInt తిరిగి ఇచ్చాడు"
+                else "${it.personName} returned $amtInt"
+            }
+            return AgentResult(
+                success = false,
+                type = ResultType.ERROR,
+                message = clarifyMsg,
+                spokenSummary = clarifyMsg,
+                suggestions = suggestions
+            )
+        }
 
         val remaining = targetLoan.amount - targetLoan.amountPaid
         val repayAmount = if (amount > 0.0) amount.coerceAtMost(remaining) else remaining

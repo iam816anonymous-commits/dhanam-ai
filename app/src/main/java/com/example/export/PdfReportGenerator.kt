@@ -248,7 +248,7 @@ object PdfReportGenerator {
         outputStream.close()
         pdfFile
     } catch (e: Throwable) {
-        e.printStackTrace()
+        com.example.util.AppLogger.e("PdfReportGenerator", "Failed generating PDF report", e)
         try { document?.close() } catch (_: Throwable) {}
         null
         }
@@ -276,7 +276,10 @@ object PdfReportGenerator {
             }
             context.startActivity(chooser)
         } catch (e: Exception) {
-            e.printStackTrace()
+            com.example.util.AppLogger.e("PdfReportGenerator", "Failed to share PDF report", e)
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(context, "No app available to open or view PDF report", android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
     }
 }

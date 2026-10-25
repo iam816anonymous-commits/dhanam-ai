@@ -54,15 +54,13 @@ class VoiceStateManagerTest {
         assertEquals(VoiceLocale.TELUGU, voiceStateManager.activeLocale.value)
         assertEquals("te-IN", voiceStateManager.activeLocale.value.languageTag)
 
-        // Switch to Hindi via code
-        voiceStateManager.setLocaleByCode("hi")
-        assertEquals(VoiceLocale.HINDI, voiceStateManager.activeLocale.value)
-        assertEquals("hi-IN", voiceStateManager.activeLocale.value.languageTag)
+        // Switch back to English via code
+        voiceStateManager.setLocaleByCode("en")
+        assertEquals(VoiceLocale.ENGLISH, voiceStateManager.activeLocale.value)
     }
 
     @Test
     fun testOnlineSpeechIntentOmitsPreferOffline() {
-        // Force online intent simulation
         val intentTe = voiceStateManager.buildSpeechIntent(
             locale = VoiceLocale.TELUGU,
             preferOfflineOverride = false
@@ -87,8 +85,7 @@ class VoiceStateManagerTest {
     }
 
     @Test
-    fun testOfflineSpeechIntentForEnglishSetsPreferOffline() {
-        // Force offline intent simulation
+    fun testOfflineSpeechIntentSetsPreferOffline() {
         val intentEn = voiceStateManager.buildSpeechIntent(
             locale = VoiceLocale.ENGLISH,
             preferOfflineOverride = true
@@ -96,46 +93,51 @@ class VoiceStateManagerTest {
         assertNotNull(intentEn)
         assertEquals("en-IN", intentEn.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE))
         assertTrue(
-            "Offline English speech must set EXTRA_PREFER_OFFLINE to true",
+            "Offline speech must set EXTRA_PREFER_OFFLINE to true",
             intentEn.getBooleanExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
         )
-    }
 
-    @Test
-    fun testOfflineSpeechIntentForTeluguHasCorrectLanguageTag() {
         val intentTe = voiceStateManager.buildSpeechIntent(
             locale = VoiceLocale.TELUGU,
             preferOfflineOverride = true
         )
         assertNotNull(intentTe)
         assertEquals("te-IN", intentTe.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE))
-    }
-
-    @Test
-    fun testSuppressOfflineErrorsPolicy() {
-        // When offline, network and client errors should be suppressed to prevent harsh error toasts
-        if (!voiceStateManager.isOnline.value) {
-            assertTrue(voiceStateManager.shouldSuppressOfflineError(SpeechRecognizer.ERROR_NETWORK))
-            assertTrue(voiceStateManager.shouldSuppressOfflineError(SpeechRecognizer.ERROR_NETWORK_TIMEOUT))
-            assertTrue(voiceStateManager.shouldSuppressOfflineError(SpeechRecognizer.ERROR_CLIENT))
-            assertTrue(voiceStateManager.shouldSuppressOfflineError(SpeechRecognizer.ERROR_NO_MATCH))
-        }
+        assertTrue(
+            "Offline speech must set EXTRA_PREFER_OFFLINE to true",
+            intentTe.getBooleanExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
+        )
     }
 
     @Test
     fun testFriendlyErrorMessagesForTeluguAndEnglish() {
-        val msgTe = voiceStateManager.getFriendlyErrorMessage(
+        val msgTeAudio = voiceStateManager.getFriendlyErrorMessage(
             errorCode = SpeechRecognizer.ERROR_AUDIO,
             locale = VoiceLocale.TELUGU,
             isOnline = true
         )
-        assertTrue(msgTe.contains("మైక్") || msgTe.contains("ఆడియో"))
+        assertTrue(msgTeAudio.contains("మైక్") || msgTeAudio.contains("ఆడియో"))
 
-        val msgEn = voiceStateManager.getFriendlyErrorMessage(
+        val msgEnAudio = voiceStateManager.getFriendlyErrorMessage(
             errorCode = SpeechRecognizer.ERROR_AUDIO,
             locale = VoiceLocale.ENGLISH,
             isOnline = true
         )
-        assertTrue(msgEn.contains("microphone") || msgEn.contains("Audio"))
+        assertTrue(msgEnAudio.contains("microphone") || msgEnAudio.contains("Audio"))
+
+        // Test offline error paths specifically
+        val msgTeOfflineNet = voiceStateManager.getFriendlyErrorMessage(
+            errorCode = SpeechRecognizer.ERROR_NETWORK,
+            locale = VoiceLocale.TELUGU,
+            isOnline = false
+        )
+        assertTrue(msgTeOfflineNet.contains("ఆఫ్‌లైన్"))
+
+        val msgEnOfflineNet = voiceStateManager.getFriendlyErrorMessage(
+            errorCode = SpeechRecognizer.ERROR_NETWORK,
+            locale = VoiceLocale.ENGLISH,
+            isOnline = false
+        )
+        assertTrue(msgEnOfflineNet.contains("Offline"))
     }
 }

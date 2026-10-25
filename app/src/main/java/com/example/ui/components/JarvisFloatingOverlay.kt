@@ -88,13 +88,8 @@ fun JarvisFloatingOverlay(
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
 
-    val coreState = when {
-        isNoting -> JarvisCoreState.NOTING
-        isProcessing -> JarvisCoreState.PROCESSING
-        isListening -> JarvisCoreState.LISTENING
-        isSpeaking -> JarvisCoreState.SPEAKING
-        else -> JarvisCoreState.IDLE
-    }
+    val agentState by viewModel.agentState.collectAsState()
+    val coreState = agentState
 
     Box(
         modifier = modifier
@@ -264,26 +259,16 @@ fun JarvisFloatingOverlay(
                         Spacer(modifier = Modifier.width(8.dp))
 
                         // Dynamic status text (Noting, Listening, Speaking, or Ready)
+                        val stateStyle = getAgentStateStyle(agentState)
                         Column(
                             modifier = Modifier
                                 .clickable { isExpanded = !isExpanded }
                                 .padding(end = 4.dp)
                         ) {
                             Text(
-                                text = when {
-                                    isNoting -> if (isTelugu) "జార్విస్ రాస్తోంది..." else "Jarvis Noting..."
-                                    isProcessing -> if (isTelugu) "లెక్కిస్తోంది..." else "Processing..."
-                                    isListening -> if (isTelugu) "వినబడుతోంది..." else "Listening..."
-                                    isSpeaking -> if (isTelugu) "సమాధానం..." else "Speaking..."
-                                    else -> "Jarvis AI"
-                                },
+                                text = "${stateStyle.iconEmoji} ${if (isTelugu) stateStyle.titleTe else stateStyle.titleEn}",
                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                color = when {
-                                    isNoting -> Color(0xFF00E676)
-                                    isListening -> Color(0xFF00B0FF)
-                                    isProcessing -> Color(0xFFFF9100)
-                                    else -> MaterialTheme.colorScheme.primary
-                                }
+                                color = stateStyle.primaryColor
                             )
 
                             Text(

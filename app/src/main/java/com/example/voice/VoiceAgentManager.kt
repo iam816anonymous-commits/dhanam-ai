@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 import kotlin.math.abs
+import com.example.util.AppLogger
 
 /**
  * In-Built Voice Manager for Dhanam AI:
@@ -106,7 +107,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
             try {
                 tts = TextToSpeech(context.applicationContext, this)
             } catch (fallbackEx: Exception) {
-                fallbackEx.printStackTrace()
+                AppLogger.e("VoiceAgentManager", "Failed fallback TTS init", fallbackEx)
                 _isTtsReady.value = false
             }
         }
@@ -203,7 +204,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.e("VoiceAgentManager", "Failed to cache offline voices", e)
         }
     }
 
@@ -248,7 +249,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
                 tts?.speak(toSpeak, TextToSpeech.QUEUE_FLUSH, null, "DhanamTtsMsgEn")
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.e("VoiceAgentManager", "Error speaking text", e)
         }
     }
 
@@ -257,7 +258,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
             tts?.stop()
             _isSpeaking.value = false
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.e("VoiceAgentManager", "Error stopping TTS speech", e)
         }
     }
 
@@ -298,7 +299,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
                 )
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.e("VoiceAgentManager", "Failed to acquire audio focus", e)
         }
     }
 
@@ -311,7 +312,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
                 audioManager?.abandonAudioFocus(null)
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.e("VoiceAgentManager", "Failed to release audio focus", e)
         }
     }
 
@@ -348,11 +349,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
     }
 
     fun setVoiceLanguage(lang: String) {
-        val normalized = when {
-            lang.startsWith("hi", ignoreCase = true) -> "hi"
-            lang.startsWith("en", ignoreCase = true) -> "en"
-            else -> "te"
-        }
+        val normalized = if (lang.startsWith("en", ignoreCase = true)) "en" else "te"
         activeLanguageCode = normalized
         activeLanguageIsTelugu = (normalized == "te")
         _voiceLanguage.value = normalized
@@ -364,7 +361,6 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
      * Supports:
      * - "te" (Telugu)
      * - "en" (English)
-     * - "hi" (Hindi)
      */
     fun startListening(
         language: String,
@@ -381,8 +377,6 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
 
     /**
      * Start in-built Speech-to-Text recognition using Android's SpeechRecognizer.
-     * When offline: Google provides offline packages for English & Hindi, but NOT for Telugu.
-     * When online: uses network recognition for Telugu, Hindi, and English transcription.
      */
     fun startListening(
         isTelugu: Boolean,
@@ -391,13 +385,10 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
     ) {
         mainHandler.post {
             stopSpeaking()
-            if (activeLanguageCode != "hi") {
-                activeLanguageIsTelugu = isTelugu
-                activeLanguageCode = if (isTelugu) "te" else "en"
-                _voiceLanguage.value = activeLanguageCode
-            } else {
-                activeLanguageIsTelugu = false
-            }
+            activeLanguageIsTelugu = isTelugu
+            activeLanguageCode = if (isTelugu) "te" else "en"
+            _voiceLanguage.value = activeLanguageCode
+            voiceStateManager.setLocaleByCode(activeLanguageCode)
             currentResultCallback = onResult
             currentErrorCallback = onError
             _isListening.value = true
@@ -533,14 +524,6 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
                 _isListening.value = false
                 releaseAudioFocus()
 
-                // Resilient Offline Mode (Internet OFF):
-                // VoiceStateManager suppresses harsh error toasts when offline,
-                // routing the user gracefully through Quick Voice Test Chips.
-                if (voiceStateManager.shouldSuppressOfflineError(errorCode)) {
-                    _speechError.value = null
-                    return
-                }
-
                 val errorMsg = voiceStateManager.getFriendlyErrorMessage(
                     errorCode,
                     voiceStateManager.activeLocale.value,
@@ -584,7 +567,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
             val intent = voiceStateManager.buildSpeechIntent()
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.e("VoiceAgentManager", "Failed startListeningInternal", e)
             if (!hasRetriedClientFallback) {
                 hasRetriedClientFallback = true
                 try {
@@ -609,7 +592,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
             try {
                 speechRecognizer?.stopListening()
             } catch (e: Exception) {
-                e.printStackTrace()
+                AppLogger.e("VoiceAgentManager", "Error stopping listening immediately", e)
             }
             // Give recognizer up to 450ms to fire onResults, otherwise finalize with partial transcript
             val partial = _partialTranscript.value.trim()
@@ -633,7 +616,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
             try {
                 speechRecognizer?.stopListening()
             } catch (e: Exception) {
-                e.printStackTrace()
+                AppLogger.e("VoiceAgentManager", "Error stopping listening", e)
             }
             _isListening.value = false
         }
@@ -644,7 +627,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
             try {
                 speechRecognizer?.cancel()
             } catch (e: Exception) {
-                e.printStackTrace()
+                AppLogger.e("VoiceAgentManager", "Error cancelling listening", e)
             }
             _isListening.value = false
             _partialTranscript.value = ""
@@ -664,17 +647,13 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
             if (!isOnline() && languageCode != "te") {
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             }
-            val primaryLang = when (languageCode) {
-                "te" -> "te-IN"
-                "hi" -> "hi-IN"
-                else -> "en-IN"
-            }
+            val primaryLang = if (languageCode == "te") "te-IN" else "en-IN"
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, primaryLang)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, primaryLang)
-            val promptMsg = when (languageCode) {
-                "te" -> "మీ ఖర్చు లేదా అప్పు వివరాలు చెప్పండి (ఉదా: కూరగాయలు 250)..."
-                "hi" -> "खर्च या उधारी का विवरण बोलें (जैसे: राशन 250)..."
-                else -> "Speak your expense or loan details (e.g. Groceries 250)..."
+            val promptMsg = if (languageCode == "te") {
+                "మీ ఖర్చు లేదా అప్పు వివరాలు చెప్పండి (ఉదా: కూరగాయలు 250)..."
+            } else {
+                "Speak your expense or loan details (e.g. Groceries 250)..."
             }
             putExtra(RecognizerIntent.EXTRA_PROMPT, promptMsg)
         }
@@ -703,6 +682,25 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
                     }
                     context.startActivity(intent)
                 } catch (_: Exception) {}
+            }
+        }
+    }
+
+    fun openInstallTtsData(context: Context) {
+        try {
+            val intent = Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            AppLogger.e("VoiceAgentManager", "Failed to launch ACTION_INSTALL_TTS_DATA", e)
+            try {
+                val settingsIntent = Intent(android.provider.Settings.ACTION_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(settingsIntent)
+            } catch (fallbackEx: Exception) {
+                AppLogger.e("VoiceAgentManager", "Failed to launch Settings fallback", fallbackEx)
             }
         }
     }
@@ -807,20 +805,20 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
                 tts?.shutdown()
                 tts = null
             } catch (e: Exception) {
-                e.printStackTrace()
+                AppLogger.e("VoiceAgentManager", "Error shutting down TTS", e)
             }
 
             try {
                 speechRecognizer?.destroy()
                 speechRecognizer = null
             } catch (e: Exception) {
-                e.printStackTrace()
+                AppLogger.e("VoiceAgentManager", "Error destroying speechRecognizer", e)
             }
 
             try {
                 voiceStateManager.destroy()
             } catch (e: Exception) {
-                e.printStackTrace()
+                AppLogger.e("VoiceAgentManager", "Error destroying voiceStateManager", e)
             }
         }
     }

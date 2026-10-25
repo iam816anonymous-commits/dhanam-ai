@@ -9,14 +9,11 @@ import com.example.data.model.CategoryBudget
 import com.example.data.model.Expense
 import com.example.data.model.ExpenseCategory
 import com.example.data.model.Loan
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 @Database(
     entities = [Expense::class, Loan::class, CategoryBudget::class],
     version = 1,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
@@ -37,20 +34,20 @@ abstract class AppDatabase : RoomDatabase() {
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
-                        // Seed default budgets
-                        CoroutineScope(Dispatchers.IO).launch {
-                            val defaultBudgets = listOf(
-                                CategoryBudget(ExpenseCategory.FOOD.displayNameEn, 8000.0),
-                                CategoryBudget(ExpenseCategory.DINING.displayNameEn, 4000.0),
-                                CategoryBudget(ExpenseCategory.TRANSPORT.displayNameEn, 3500.0),
-                                CategoryBudget(ExpenseCategory.SHOPPING.displayNameEn, 5000.0),
-                                CategoryBudget(ExpenseCategory.BILLS.displayNameEn, 4500.0),
-                                CategoryBudget(ExpenseCategory.ENTERTAINMENT.displayNameEn, 2500.0),
-                                CategoryBudget(ExpenseCategory.HEALTH.displayNameEn, 3000.0),
-                                CategoryBudget(ExpenseCategory.EDUCATION.displayNameEn, 5000.0),
-                                CategoryBudget(ExpenseCategory.OTHER.displayNameEn, 3000.0)
-                            )
-                            getInstance(context).budgetDao().insertAll(defaultBudgets)
+                        // Atomic, non-reentrant seed of default category budgets inside database transaction
+                        val defaultBudgets = listOf(
+                            Pair(ExpenseCategory.FOOD.displayNameEn, 8000.0),
+                            Pair(ExpenseCategory.DINING.displayNameEn, 4000.0),
+                            Pair(ExpenseCategory.TRANSPORT.displayNameEn, 3500.0),
+                            Pair(ExpenseCategory.SHOPPING.displayNameEn, 5000.0),
+                            Pair(ExpenseCategory.BILLS.displayNameEn, 4500.0),
+                            Pair(ExpenseCategory.ENTERTAINMENT.displayNameEn, 2500.0),
+                            Pair(ExpenseCategory.HEALTH.displayNameEn, 3000.0),
+                            Pair(ExpenseCategory.EDUCATION.displayNameEn, 5000.0),
+                            Pair(ExpenseCategory.OTHER.displayNameEn, 3000.0)
+                        )
+                        for ((category, limit) in defaultBudgets) {
+                            db.execSQL("INSERT OR REPLACE INTO category_budgets (category, monthlyLimit) VALUES ('$category', $limit)")
                         }
                     }
                 })
