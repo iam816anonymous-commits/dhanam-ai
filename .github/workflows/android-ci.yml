@@ -38,7 +38,7 @@ jobs:
             -dname "CN=Android Debug,O=Android,C=US"
           keytool -genkey -v -keystore "$RUNNER_TEMP/ci-release.jks" \
             -storepass ci-only-store-password -alias ci-release \
-            -keypass ci-only-key-password -keyalg RSA -keysize 2048 \
+            -keypass ci-only-store-password -keyalg RSA -keysize 2048 \
             -validity 2 -dname "CN=CI Validation Only,O=CI,C=US"
 
       - name: Run Lint
@@ -54,7 +54,7 @@ jobs:
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/ci-release.jks
           STORE_PASSWORD: ci-only-store-password
-          KEY_PASSWORD: ci-only-key-password
+          KEY_PASSWORD: ci-only-store-password
           KEY_ALIAS: ci-release
         run: ./gradlew :app:assembleRelease --no-configuration-cache
 
