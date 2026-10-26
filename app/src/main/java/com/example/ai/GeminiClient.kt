@@ -56,13 +56,18 @@ object GeminiService {
                 .build()
             remoteConfig.setConfigSettingsAsync(settings)
             remoteConfig.setDefaultsAsync(mapOf(REMOTE_MODEL_KEY to DEFAULT_MODEL))
-            remoteConfig.fetchAndActivate().addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    setRemoteModelConfig(remoteConfig.getString(REMOTE_MODEL_KEY))
-                } else {
-                    AppLogger.w(TAG, "Remote Config fetch failed; retaining safe model default")
+                .addOnCompleteListener { defaultsTask ->
+                    if (!defaultsTask.isSuccessful) {
+                        AppLogger.w(TAG, "Remote Config defaults could not be applied; retaining safe model default")
+                    }
+                    remoteConfig.fetchAndActivate().addOnCompleteListener { fetchTask ->
+                        if (fetchTask.isSuccessful) {
+                            setRemoteModelConfig(remoteConfig.getString(REMOTE_MODEL_KEY))
+                        } else {
+                            AppLogger.w(TAG, "Remote Config fetch failed; retaining safe model default")
+                        }
+                    }
                 }
-            }
         } catch (e: Exception) {
             AppLogger.w(TAG, "Remote Config unavailable; retaining safe model default", e)
         }
