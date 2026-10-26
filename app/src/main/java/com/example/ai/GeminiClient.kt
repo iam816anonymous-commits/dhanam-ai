@@ -3,7 +3,7 @@ package com.example.ai
 import com.example.BuildConfig
 import com.example.util.AppLogger
 import com.google.firebase.Firebase
-import com.google.firebase.ai.GenerativeBackend
+import com.google.firebase.ai.type.GenerativeBackend
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.generationConfig
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
@@ -88,7 +88,7 @@ object GeminiService {
         }
     }
 
-    fun getActiveModel(): String = cachedRemoteModel ?: DEFAULT_MODEL
+    @Volatile\n    var currentClient: FinancialAiClient = DefaultFinancialAiClient()\n\n    fun getActiveModel(): String = cachedRemoteModel ?: DEFAULT_MODEL
 
     fun validateModelName(model: String): String =
         if (ALLOWED_MODELS.contains(model)) model else getActiveModel()
@@ -132,7 +132,7 @@ object GeminiService {
     ): GeminiCallResult = generateWithFirebaseAi(prompt, model)
 
     suspend fun callGemini(prompt: String): String? =
-        when (val result = DefaultFinancialAiClient().generateContent(prompt, getActiveModel())) {
+        when (val result = currentClient.generateContent(prompt, getActiveModel())) {
             is GeminiCallResult.Success -> result.text
             else -> null
         }
