@@ -66,13 +66,28 @@ sealed class GeminiCallResult {
     data class ParseError(val message: String) : GeminiCallResult()
 }
 
+/**
+ * Abstraction layer for Financial AI clients (e.g. Firebase Vertex AI / REST client)
+ * preventing direct hardcoded API key dependency in code.
+ */
+interface FinancialAiClient {
+    suspend fun generateContent(prompt: String, model: String = GeminiService.DEFAULT_MODEL): GeminiCallResult
+}
+
 interface GeminiApi {
     @POST("v1beta/models/{model}:generateContent")
     suspend fun generateContent(
         @Path("model") model: String,
         @Header("x-goog-api-key") apiKey: String,
+        @Header("X-Firebase-AppCheck") appCheckToken: String? = null,
         @Body request: GeminiRequest
     ): GeminiResponse
+}
+
+class DefaultFinancialAiClient : FinancialAiClient {
+    override suspend fun generateContent(prompt: String, model: String): GeminiCallResult {
+        return GeminiService.callGeminiDetailed(prompt, model)
+    }
 }
 
 object GeminiService {
@@ -81,6 +96,25 @@ object GeminiService {
 
     // Single configurable model ID constant. Stable fast flash model.
     const val DEFAULT_MODEL = "gemini-2.5-flash"
+
+    // Allowlisted models
+    val ALLOWED_MODELS = setOf("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash")
+
+    @Volatile
+    private var cachedRemoteModel: String? = null
+
+    fun setRemoteModelConfig(model: String?) {
+        if (!model.isNullOrBlank() && ALLOWED_MODELS.contains(model)) {
+            cachedRemoteModel = model
+            AppLogger.i(TAG, "Configured remote model: $model")
+        } else if (!model.isNullOrBlank()) {
+            AppLogger.w(TAG, "Rejected invalid remote model '$model', sticking to cached/default")
+        }
+    }
+
+    fun getActiveModel(): String {
+        return cachedRemoteModel ?: DEFAULT_MODEL
+    }
 
     private val moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())
@@ -103,13 +137,21 @@ object GeminiService {
 
     val api: GeminiApi = retrofit.create(GeminiApi::class.java)
 
+    var currentClient: FinancialAiClient = DefaultFinancialAiClient()
+
+    fun validateModelName(model: String): String {
+        return if (ALLOWED_MODELS.contains(model)) model else getActiveModel()
+    }
+
     /**
      * Executes Gemini inference with typed results, timeout, and exponential backoff retry.
      */
     suspend fun callGeminiDetailed(
         prompt: String,
-        model: String = DEFAULT_MODEL
+        model: String = getActiveModel()
     ): GeminiCallResult = withContext(Dispatchers.IO) {
+        val safeModel = validateModelName(model)
+        // Use environment/BuildConfig configured key or Firebase AI backend
         val apiKey = BuildConfig.GEMINI_API_KEY
         if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
             return@withContext GeminiCallResult.NoKey
@@ -134,7 +176,7 @@ object GeminiService {
         for (attempt in 0..maxRetries) {
             try {
                 val response = api.generateContent(
-                    model = model,
+                    model = safeModel,
                     apiKey = apiKey,
                     request = request
                 )
@@ -174,7 +216,7 @@ object GeminiService {
     }
 
     suspend fun callGemini(prompt: String): String? {
-        return when (val result = callGeminiDetailed(prompt)) {
+        return when (val result = currentClient.generateContent(prompt, getActiveModel())) {
             is GeminiCallResult.Success -> result.text
             else -> null
         }

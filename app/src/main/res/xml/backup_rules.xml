@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <include domain="database" path="dhanam_database" />
+    <include domain="database" path="dhanam_expense_database" />
     <include domain="sharedpref" path="." />
     <exclude domain="sharedpref" path="dhanam_secure_pin.xml" />
 </full-backup-content>

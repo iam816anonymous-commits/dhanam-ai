@@ -139,9 +139,17 @@ object CsvReportGenerator {
     }
 
     private fun escapeCsv(value: String): String {
-        if (value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r")) {
-            return "\"" + value.replace("\"", "\"\"") + "\""
+        var cleanValue = value
+        // Sanitize formula injection prefixes (=, +, -, @, \t, \r)
+        if (cleanValue.startsWith("=") || cleanValue.startsWith("+") ||
+            cleanValue.startsWith("-") || cleanValue.startsWith("@") ||
+            cleanValue.startsWith("\t") || cleanValue.startsWith("\r")
+        ) {
+            cleanValue = "'" + cleanValue
         }
-        return value
+        if (cleanValue.contains(",") || cleanValue.contains("\"") || cleanValue.contains("\n") || cleanValue.contains("\r")) {
+            return "\"" + cleanValue.replace("\"", "\"\"") + "\""
+        }
+        return cleanValue
     }
 }

@@ -255,50 +255,35 @@ class ExpenseAgentEngine(
             return executeSingleItem(parsedItems[0], isTelugu)
         }
 
-        // 4. Fallback to Gemini Cloud AI ONLY if user has opted in via Settings.
-        // Guarantees private on-device processing by default.
-        if (preferenceManager.isCloudAiOptIn()) {
-            val prompt = AgentFinancialBrain.getStrictSystemPrompt(isTelugu) + "\n\nUser input: \"$trimmed\""
-            when (val geminiCall = GeminiService.callGeminiDetailed(prompt)) {
-                is GeminiCallResult.Success -> {
-                    try {
-                        val clean = geminiCall.text.trim()
-                            .removePrefix("```json")
-                            .removePrefix("```")
-                            .removeSuffix("```")
-                            .trim()
+        // 4. Centralized Cloud AI Consent Boundary Enforcement
+        // Cloud AI MUST NEVER be called if cloudAiOptIn is false.
+        if (!preferenceManager.isCloudAiOptIn()) {
+            return AgentResult(
+                success = false,
+                type = ResultType.ERROR,
+                message = if (isTelugu) "ఆఫ్‌లైన్ లో నమోదు చేయడానికి ఖర్చు మరియు మొత్తం చెప్పండి (ఉదా: 'కూరగాయలు 250'). క్లౌడ్ AI నిలిపివేయబడింది."
+                else "Could not parse on-device. To enable Cloud AI fallback, turn on 'Cloud AI' in Settings."
+            )
+        }
 
-                        if (clean.startsWith("[")) {
-                            val array = JSONArray(clean)
-                            val items = mutableListOf<ParsedItem>()
-                            for (i in 0 until array.length()) {
-                                val obj = array.getJSONObject(i)
-                                val amt = obj.optDouble("amount", 0.0)
-                                if (amt > 0.0) {
-                                    items.add(
-                                        ParsedItem(
-                                            type = obj.optString("type", "EXPENSE"),
-                                            title = obj.optString("title", "Expense"),
-                                            amount = amt,
-                                            category = obj.optString("category", ExpenseCategory.OTHER.displayNameEn),
-                                            personName = obj.optString("personName", ""),
-                                            dueDateDays = obj.optInt("dueDateDays", 7),
-                                            paymentMode = obj.optString("paymentMode", "UPI"),
-                                            notes = obj.optString("notes", "")
-                                        )
-                                    )
-                                }
-                            }
-                            if (items.size >= 2) {
-                                return executeBatchItems(items, isTelugu)
-                            } else if (items.size == 1) {
-                                return executeSingleItem(items[0], isTelugu)
-                            }
-                        } else {
-                            val obj = JSONObject(clean)
+        val prompt = AgentFinancialBrain.getStrictSystemPrompt(isTelugu) + "\n\nUser input: \"$trimmed\""
+        when (val geminiCall = GeminiService.currentClient.generateContent(prompt, GeminiService.getActiveModel())) {
+            is GeminiCallResult.Success -> {
+                try {
+                    val clean = geminiCall.text.trim()
+                        .removePrefix("```json")
+                        .removePrefix("```")
+                        .removeSuffix("```")
+                        .trim()
+
+                    if (clean.startsWith("[")) {
+                        val array = JSONArray(clean)
+                        val items = mutableListOf<ParsedItem>()
+                        for (i in 0 until array.length()) {
+                            val obj = array.getJSONObject(i)
                             val amt = obj.optDouble("amount", 0.0)
                             if (amt > 0.0) {
-                                return executeSingleItem(
+                                items.add(
                                     ParsedItem(
                                         type = obj.optString("type", "EXPENSE"),
                                         title = obj.optString("title", "Expense"),
@@ -308,37 +293,59 @@ class ExpenseAgentEngine(
                                         dueDateDays = obj.optInt("dueDateDays", 7),
                                         paymentMode = obj.optString("paymentMode", "UPI"),
                                         notes = obj.optString("notes", "")
-                                    ),
-                                    isTelugu
+                                    )
                                 )
                             }
                         }
-                    } catch (e: Exception) {
-                        com.example.util.AppLogger.e("ExpenseAgentEngine", "Failed to parse Gemini JSON", e)
+                        if (items.size >= 2) {
+                            return executeBatchItems(items, isTelugu)
+                        } else if (items.size == 1) {
+                            return executeSingleItem(items[0], isTelugu)
+                        }
+                    } else {
+                        val obj = JSONObject(clean)
+                        val amt = obj.optDouble("amount", 0.0)
+                        if (amt > 0.0) {
+                            return executeSingleItem(
+                                ParsedItem(
+                                    type = obj.optString("type", "EXPENSE"),
+                                    title = obj.optString("title", "Expense"),
+                                    amount = amt,
+                                    category = obj.optString("category", ExpenseCategory.OTHER.displayNameEn),
+                                    personName = obj.optString("personName", ""),
+                                    dueDateDays = obj.optInt("dueDateDays", 7),
+                                    paymentMode = obj.optString("paymentMode", "UPI"),
+                                    notes = obj.optString("notes", "")
+                                ),
+                                isTelugu
+                            )
+                        }
                     }
+                } catch (e: Exception) {
+                    com.example.util.AppLogger.e("ExpenseAgentEngine", "Failed to parse Gemini JSON", e)
                 }
-                is GeminiCallResult.NetworkError -> {
-                    com.example.util.AppLogger.w("ExpenseAgentEngine", "Gemini NetworkError: ${geminiCall.message}")
+            }
+            is GeminiCallResult.NetworkError -> {
+                com.example.util.AppLogger.w("ExpenseAgentEngine", "Gemini NetworkError: ${geminiCall.message}")
+                return AgentResult(
+                    success = false,
+                    type = ResultType.ERROR,
+                    message = if (isTelugu) "ఇంటర్నెట్ కనెక్షన్ సమస్య. ఆఫ్‌లైన్ లో నమోదు చేయడానికి ఖర్చు మరియు మొత్తం చెప్పండి (ఉదా: 'టీ 20')."
+                    else "Network connection unavailable. To log offline, say category and amount (e.g. 'Tea 20')."
+                )
+            }
+            is GeminiCallResult.HttpError -> {
+                com.example.util.AppLogger.w("ExpenseAgentEngine", "Gemini HttpError: ${geminiCall.code}")
+                if (geminiCall.code == 429) {
                     return AgentResult(
                         success = false,
                         type = ResultType.ERROR,
-                        message = if (isTelugu) "ఇంటర్నెట్ కనెక్షన్ సమస్య. ఆఫ్‌లైన్ లో నమోదు చేయడానికి ఖర్చు మరియు మొత్తం చెప్పండి (ఉదా: 'టీ 20')."
-                        else "Network connection unavailable. To log offline, say category and amount (e.g. 'Tea 20')."
+                        message = if (isTelugu) "క్లౌడ్ AI లిమిట్ పూర్తయింది. స్థానిక ఆఫ్‌లైన్ విధానంలో రికార్డ్ చేయండి."
+                        else "Cloud AI rate limit reached. Please record using standard offline format."
                     )
                 }
-                is GeminiCallResult.HttpError -> {
-                    com.example.util.AppLogger.w("ExpenseAgentEngine", "Gemini HttpError: ${geminiCall.code}")
-                    if (geminiCall.code == 429) {
-                        return AgentResult(
-                            success = false,
-                            type = ResultType.ERROR,
-                            message = if (isTelugu) "క్లౌడ్ AI లిమిట్ పూర్తయింది. స్థానిక ఆఫ్‌లైన్ విధానంలో రికార్డ్ చేయండి."
-                            else "Cloud AI rate limit reached. Please record using standard offline format."
-                        )
-                    }
-                }
-                else -> { /* NoKey or ParseError, fall through to default helpful message */ }
             }
+            else -> { /* NoKey or ParseError, fall through to default helpful message */ }
         }
 
         // If amount couldn't be detected at all

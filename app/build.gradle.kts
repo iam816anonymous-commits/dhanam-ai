@@ -27,10 +27,18 @@ android {
   signingConfigs {
     create("release") {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      val storeFileObj = file(keystorePath)
+      val storePass = System.getenv("STORE_PASSWORD")
+      val keyPass = System.getenv("KEY_PASSWORD")
+      if (storeFileObj.exists() && !storePass.isNullOrBlank() && !keyPass.isNullOrBlank()) {
+        storeFile = storeFileObj
+        storePassword = storePass
+        keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
+        keyPassword = keyPass
+      } else {
+        // Fail release signing cleanly if production signing inputs are missing
+        storeFile = null
+      }
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
@@ -64,7 +72,28 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests { isIncludeAndroidResources = true }
+    managedDevices {
+      localDevices {
+        create("pixel2Api27") {
+          device = "Pixel 2"
+          apiLevel = 27
+          systemImageSource = "aosp"
+        }
+        create("pixel5Api30") {
+          device = "Pixel 5"
+          apiLevel = 30
+          systemImageSource = "google"
+        }
+        create("pixel6Api34") {
+          device = "Pixel 6"
+          apiLevel = 34
+          systemImageSource = "google"
+        }
+      }
+    }
+  }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true

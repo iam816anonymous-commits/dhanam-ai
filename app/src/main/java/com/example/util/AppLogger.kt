@@ -37,35 +37,39 @@ object AppLogger {
 
     fun d(tag: String, message: String) {
         if (BuildConfig.DEBUG) {
-            Log.d(tag, message)
+            try { Log.d(tag, message) } catch (_: Throwable) {}
         }
     }
 
     fun i(tag: String, message: String) {
         if (BuildConfig.DEBUG) {
-            Log.i(tag, message)
+            try { Log.i(tag, message) } catch (_: Throwable) {}
         }
     }
 
     fun w(tag: String, message: String, throwable: Throwable? = null) {
         recordError(tag, message, errorCode = throwable?.javaClass?.simpleName)
         if (BuildConfig.DEBUG) {
-            if (throwable != null) {
-                Log.w(tag, message, throwable)
-            } else {
-                Log.w(tag, message)
-            }
+            try {
+                if (throwable != null) {
+                    Log.w(tag, message, throwable)
+                } else {
+                    Log.w(tag, message)
+                }
+            } catch (_: Throwable) {}
         }
     }
 
     fun e(tag: String, message: String, throwable: Throwable? = null, errorCode: String? = null) {
         recordError(tag, message, errorCode = errorCode ?: throwable?.javaClass?.simpleName)
         if (BuildConfig.DEBUG) {
-            if (throwable != null) {
-                Log.e(tag, message, throwable)
-            } else {
-                Log.e(tag, message)
-            }
+            try {
+                if (throwable != null) {
+                    Log.e(tag, message, throwable)
+                } else {
+                    Log.e(tag, message)
+                }
+            } catch (_: Throwable) {}
         }
     }
 }

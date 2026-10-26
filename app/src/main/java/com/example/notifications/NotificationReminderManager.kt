@@ -107,10 +107,18 @@ object NotificationReminderManager {
         prefs.edit().putLong(KEY_PREFIX_LOAN_NOTIFIED + loanId, System.currentTimeMillis()).apply()
     }
 
+    /**
+     * Converts a Long loan ID safely into a unique, stable Int notification ID to avoid collision/overflow.
+     */
+    fun getStableNotificationId(loanId: Long, offset: Int): Int {
+        val hash = (loanId xor (loanId ushr 32)).toInt()
+        return (hash and 0x0FFFFFFF) + offset
+    }
+
     fun cancelLoanNotification(context: Context, loanId: Long) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-        notificationManager?.cancel(loanId.toInt() + 1000)
-        notificationManager?.cancel(loanId.toInt() + 3000)
+        notificationManager?.cancel(getStableNotificationId(loanId, 10000))
+        notificationManager?.cancel(getStableNotificationId(loanId, 30000))
     }
 
     fun showRepaymentReminderNotification(context: Context, loan: Loan, isTelugu: Boolean) {
@@ -143,7 +151,7 @@ object NotificationReminderManager {
             .setContentIntent(getLaunchIntent(context))
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-        notificationManager?.notify(loan.id.toInt() + 1000, builder.build())
+        notificationManager?.notify(getStableNotificationId(loan.id, 10000), builder.build())
         recordLoanNotified(context, loan.id)
     }
 
@@ -177,7 +185,7 @@ object NotificationReminderManager {
             .setContentIntent(getLaunchIntent(context))
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-        notificationManager?.notify(loan.id.toInt() + 3000, builder.build())
+        notificationManager?.notify(getStableNotificationId(loan.id, 30000), builder.build())
         recordLoanNotified(context, loan.id)
     }
 
