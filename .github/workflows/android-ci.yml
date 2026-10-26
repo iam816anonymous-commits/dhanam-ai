@@ -2,7 +2,7 @@ name: Dhanam AI CI
 
 on:
   push:
-    branches: [ "main", "jules/*" ]
+    branches: [ "main", "jules/*", "fix/*" ]
   pull_request:
     branches: [ "main" ]
 
@@ -24,13 +24,18 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Generate CI Debug Keystore
+      - name: Generate CI-only signing keys
+        shell: bash
         run: |
           mkdir -p ~/.android
           keytool -genkey -v -keystore ~/.android/debug.keystore \
             -storepass android -alias androiddebugkey -keypass android \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
+          keytool -genkey -v -keystore "$RUNNER_TEMP/ci-release.jks" \
+            -storepass ci-only-store-password -alias ci-release \
+            -keypass ci-only-key-password -keyalg RSA -keysize 2048 \
+            -validity 2 -dname "CN=CI Validation Only,O=CI,C=US"
 
       - name: Run Lint
         run: ./gradlew :app:lintDebug --no-configuration-cache
@@ -41,19 +46,40 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-configuration-cache
 
-      - name: Verify 16 KB Alignment
+      - name: Build release APK with ephemeral CI-only signing
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/ci-release.jks
+          STORE_PASSWORD: ci-only-store-password
+          KEY_PASSWORD: ci-only-key-password
+          KEY_ALIAS: ci-release
+        run: ./gradlew :app:assembleRelease --no-configuration-cache
+
+      - name: Verify 16 KB APK alignment
+        shell: bash
         run: |
-          ZIPALIGN_PATH=$(find $ANDROID_SDK_ROOT/build-tools/ -name zipalign | tail -n 1)
+          set -euo pipefail
+          ZIPALIGN_PATH=$(find "$ANDROID_SDK_ROOT/build-tools/" -name zipalign -type f | sort -V | tail -n 1)
           if [ -z "$ZIPALIGN_PATH" ]; then
             echo "ERROR: zipalign tool not found in $ANDROID_SDK_ROOT/build-tools/"
             exit 1
           fi
-          echo "Using zipalign at: $ZIPALIGN_PATH"
-          $ZIPALIGN_PATH -c -P 16 -v 4 app/build/outputs/apk/debug/app-debug.apk
+          "$ZIPALIGN_PATH" -c -P 16 -v 4 app/build/outputs/apk/debug/app-debug.apk
+          "$ZIPALIGN_PATH" -c -P 16 -v 4 app/build/outputs/apk/release/app-release.apk
 
-      - name: Upload Test Reports
+      - name: Record APK artifact metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          stat -c '%n %s bytes' app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload build and test evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports
-          path: app/build/reports/
+          name: android-validation-evidence
+          path: |
+            app/build/reports/
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: warn
