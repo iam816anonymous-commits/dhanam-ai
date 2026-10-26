@@ -5,6 +5,7 @@ import com.example.util.AppLogger
 import com.google.firebase.Firebase
 import com.google.firebase.ai.GenerativeBackend
 import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.generationConfig
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
 import kotlinx.coroutines.Dispatchers
@@ -100,7 +101,13 @@ object GeminiService {
         try {
             val generativeModel = Firebase.ai(
                 backend = GenerativeBackend.googleAI()
-            ).generativeModel(modelName = safeModel)
+            ).generativeModel(
+                modelName = safeModel,
+                generationConfig = generationConfig {
+                    temperature = 0.1f
+                    responseMimeType = "application/json"
+                }
+            )
             val response = generativeModel.generateContent(prompt)
             val responseText = response.text
             if (responseText.isNullOrBlank()) {
