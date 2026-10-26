@@ -76,10 +76,14 @@ object GeminiService {
 
     /** Accepts a validated model value; retained as a unit-test seam. */
     fun setRemoteModelConfig(model: String?) {
-        if (!model.isNullOrBlank() && ALLOWED_MODELS.contains(model)) {
+        if (model.isNullOrBlank()) {
+            cachedRemoteModel = null
+            return
+        }
+        if (ALLOWED_MODELS.contains(model)) {
             cachedRemoteModel = model
             AppLogger.i(TAG, "Accepted allowlisted AI model configuration")
-        } else if (!model.isNullOrBlank()) {
+        } else {
             AppLogger.w(TAG, "Rejected model configuration outside allowlist")
         }
     }
