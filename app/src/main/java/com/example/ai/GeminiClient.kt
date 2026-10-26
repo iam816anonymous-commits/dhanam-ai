@@ -2,61 +2,13 @@ package com.example.ai
 
 import com.example.BuildConfig
 import com.example.util.AppLogger
-import com.squareup.moshi.JsonClass
-import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import com.google.firebase.Firebase
+import com.google.firebase.ai.GenerativeBackend
+import com.google.firebase.ai.ai
+import com.google.firebase.remoteconfig.FirebaseRemoteConfig
+import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
-import retrofit2.HttpException
-import retrofit2.Retrofit
-import retrofit2.converter.moshi.MoshiConverterFactory
-import retrofit2.http.Body
-import retrofit2.http.Header
-import retrofit2.http.POST
-import retrofit2.http.Path
-import java.io.IOException
-import java.util.concurrent.TimeUnit
-
-@JsonClass(generateAdapter = true)
-data class GeminiRequest(
-    val contents: List<ContentPartContainer>,
-    val generationConfig: GenerationConfig? = null
-)
-
-@JsonClass(generateAdapter = true)
-data class ContentPartContainer(
-    val parts: List<TextPart>
-)
-
-@JsonClass(generateAdapter = true)
-data class TextPart(
-    val text: String
-)
-
-@JsonClass(generateAdapter = true)
-data class GenerationConfig(
-    val temperature: Float = 0.2f,
-    val topP: Float = 0.9f,
-    val responseMimeType: String? = "application/json"
-)
-
-@JsonClass(generateAdapter = true)
-data class GeminiResponse(
-    val candidates: List<Candidate>? = null
-)
-
-@JsonClass(generateAdapter = true)
-data class Candidate(
-    val content: ResponseContent? = null
-)
-
-@JsonClass(generateAdapter = true)
-data class ResponseContent(
-    val parts: List<TextPart>? = null
-)
 
 sealed class GeminiCallResult {
     data class Success(val text: String) : GeminiCallResult()
@@ -67,158 +19,105 @@ sealed class GeminiCallResult {
 }
 
 /**
- * Abstraction layer for Financial AI clients (e.g. Firebase Vertex AI / REST client)
- * preventing direct hardcoded API key dependency in code.
+ * Application-facing contract for financial AI. The implementation uses Firebase AI Logic;
+ * no Gemini REST API key is read from BuildConfig or sent by the Android client.
  */
 interface FinancialAiClient {
-    suspend fun generateContent(prompt: String, model: String = GeminiService.DEFAULT_MODEL): GeminiCallResult
-}
-
-interface GeminiApi {
-    @POST("v1beta/models/{model}:generateContent")
     suspend fun generateContent(
-        @Path("model") model: String,
-        @Header("x-goog-api-key") apiKey: String,
-        @Header("X-Firebase-AppCheck") appCheckToken: String? = null,
-        @Body request: GeminiRequest
-    ): GeminiResponse
+        prompt: String,
+        model: String = GeminiService.DEFAULT_MODEL
+    ): GeminiCallResult
 }
 
 class DefaultFinancialAiClient : FinancialAiClient {
-    override suspend fun generateContent(prompt: String, model: String): GeminiCallResult {
-        return GeminiService.callGeminiDetailed(prompt, model)
-    }
+    override suspend fun generateContent(prompt: String, model: String): GeminiCallResult =
+        GeminiService.generateWithFirebaseAi(prompt, model)
 }
 
 object GeminiService {
     private const val TAG = "GeminiService"
-    private const val BASE_URL = "https://generativelanguage.googleapis.com/"
+    private const val REMOTE_MODEL_KEY = "financial_ai_model"
 
-    // Single configurable model ID constant. Stable fast flash model.
     const val DEFAULT_MODEL = "gemini-2.5-flash"
-
-    // Allowlisted models
     val ALLOWED_MODELS = setOf("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash")
 
     @Volatile
     private var cachedRemoteModel: String? = null
 
+    /**
+     * Initializes real Firebase Remote Config. The app remains usable with a safe default if
+     * Firebase is not configured or the fetch fails. Only allowlisted model IDs are accepted.
+     */
+    fun initializeRemoteConfig() {
+        try {
+            val remoteConfig = FirebaseRemoteConfig.getInstance()
+            val settings = FirebaseRemoteConfigSettings.Builder()
+                .setMinimumFetchIntervalInSeconds(if (BuildConfig.DEBUG) 0 else 3600)
+                .build()
+            remoteConfig.setConfigSettingsAsync(settings)
+            remoteConfig.setDefaultsAsync(mapOf(REMOTE_MODEL_KEY to DEFAULT_MODEL))
+            remoteConfig.fetchAndActivate().addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    setRemoteModelConfig(remoteConfig.getString(REMOTE_MODEL_KEY))
+                } else {
+                    AppLogger.w(TAG, "Remote Config fetch failed; retaining safe model default")
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Remote Config unavailable; retaining safe model default", e)
+        }
+    }
+
+    /** Accepts a validated model value; retained as a unit-test seam. */
     fun setRemoteModelConfig(model: String?) {
         if (!model.isNullOrBlank() && ALLOWED_MODELS.contains(model)) {
             cachedRemoteModel = model
-            AppLogger.i(TAG, "Configured remote model: $model")
+            AppLogger.i(TAG, "Accepted allowlisted AI model configuration")
         } else if (!model.isNullOrBlank()) {
-            AppLogger.w(TAG, "Rejected invalid remote model '$model', sticking to cached/default")
+            AppLogger.w(TAG, "Rejected model configuration outside allowlist")
         }
     }
 
-    fun getActiveModel(): String {
-        return cachedRemoteModel ?: DEFAULT_MODEL
-    }
+    fun getActiveModel(): String = cachedRemoteModel ?: DEFAULT_MODEL
 
-    private val moshi = Moshi.Builder()
-        .addLast(KotlinJsonAdapterFactory())
-        .build()
+    fun validateModelName(model: String): String =
+        if (ALLOWED_MODELS.contains(model)) model else getActiveModel()
 
-    private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
-        .addInterceptor(HttpLoggingInterceptor().apply {
-            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
-        })
-        .build()
-
-    private val retrofit = Retrofit.Builder()
-        .baseUrl(BASE_URL)
-        .client(okHttpClient)
-        .addConverterFactory(MoshiConverterFactory.create(moshi))
-        .build()
-
-    val api: GeminiApi = retrofit.create(GeminiApi::class.java)
-
-    var currentClient: FinancialAiClient = DefaultFinancialAiClient()
-
-    fun validateModelName(model: String): String {
-        return if (ALLOWED_MODELS.contains(model)) model else getActiveModel()
-    }
-
-    /**
-     * Executes Gemini inference with typed results, timeout, and exponential backoff retry.
-     */
-    suspend fun callGeminiDetailed(
+    internal suspend fun generateWithFirebaseAi(
         prompt: String,
         model: String = getActiveModel()
     ): GeminiCallResult = withContext(Dispatchers.IO) {
+        if (prompt.isBlank()) {
+            return@withContext GeminiCallResult.ParseError("Prompt must not be blank")
+        }
+
         val safeModel = validateModelName(model)
-        // Use environment/BuildConfig configured key or Firebase AI backend
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
-            return@withContext GeminiCallResult.NoKey
-        }
-
-        val request = GeminiRequest(
-            contents = listOf(
-                ContentPartContainer(
-                    parts = listOf(TextPart(text = prompt))
-                )
-            ),
-            generationConfig = GenerationConfig(
-                temperature = 0.1f,
-                responseMimeType = "application/json"
-            )
-        )
-
-        var lastException: Exception? = null
-        val maxRetries = 2
-        var currentDelayMs = 500L
-
-        for (attempt in 0..maxRetries) {
-            try {
-                val response = api.generateContent(
-                    model = safeModel,
-                    apiKey = apiKey,
-                    request = request
-                )
-                val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                return@withContext if (!text.isNullOrBlank()) {
-                    GeminiCallResult.Success(text)
-                } else {
-                    GeminiCallResult.ParseError("Received empty candidate text from Gemini response")
-                }
-            } catch (httpEx: HttpException) {
-                lastException = httpEx
-                val code = httpEx.code()
-                AppLogger.w(TAG, "Gemini HTTP error $code on attempt ${attempt + 1}", httpEx)
-                // Retry only on 429 (Rate Limit) or 5xx (Server Error)
-                if ((code == 429 || code in 500..599) && attempt < maxRetries) {
-                    delay(currentDelayMs)
-                    currentDelayMs *= 2
-                    continue
-                }
-                return@withContext GeminiCallResult.HttpError(code, httpEx.message ?: "HTTP $code")
-            } catch (ioEx: IOException) {
-                lastException = ioEx
-                AppLogger.w(TAG, "Gemini Network/IO error on attempt ${attempt + 1}", ioEx)
-                if (attempt < maxRetries) {
-                    delay(currentDelayMs)
-                    currentDelayMs *= 2
-                    continue
-                }
-                return@withContext GeminiCallResult.NetworkError(ioEx.message ?: "Network timeout or unreachable")
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Gemini unexpected failure", e)
-                return@withContext GeminiCallResult.ParseError(e.message ?: "Unexpected parsing error")
+        try {
+            val generativeModel = Firebase.ai(
+                backend = GenerativeBackend.googleAI()
+            ).generativeModel(modelName = safeModel)
+            val response = generativeModel.generateContent(prompt)
+            val responseText = response.text
+            if (responseText.isNullOrBlank()) {
+                GeminiCallResult.ParseError("Received empty candidate text from Firebase AI")
+            } else {
+                GeminiCallResult.Success(responseText)
             }
+        } catch (e: Exception) {
+            // Do not log prompts, model output, or financial data.
+            AppLogger.w(TAG, "Firebase AI request failed (" + e.javaClass.simpleName + ")")
+            GeminiCallResult.NetworkError("AI service unavailable. Please try again.")
         }
-
-        return@withContext GeminiCallResult.NetworkError(lastException?.message ?: "Max retries exceeded")
     }
 
-    suspend fun callGemini(prompt: String): String? {
-        return when (val result = currentClient.generateContent(prompt, getActiveModel())) {
+    suspend fun callGeminiDetailed(
+        prompt: String,
+        model: String = getActiveModel()
+    ): GeminiCallResult = generateWithFirebaseAi(prompt, model)
+
+    suspend fun callGemini(prompt: String): String? =
+        when (val result = DefaultFinancialAiClient().generateContent(prompt, getActiveModel())) {
             is GeminiCallResult.Success -> result.text
             else -> null
         }
-    }
 }
