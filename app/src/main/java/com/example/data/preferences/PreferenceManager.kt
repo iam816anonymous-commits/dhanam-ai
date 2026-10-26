@@ -279,6 +279,7 @@ class PreferenceManager(context: Context) {
     }
 
     companion object {
+        private const val CURRENT_PIN_KDF_ITERATIONS = 120000
         private const val KEY_THEME_MODE = "theme_mode" // "SYSTEM", "LIGHT", "DARK"
         private const val KEY_BIOMETRIC_ENABLED = "biometric_enabled"
         private const val KEY_APP_PIN = "app_pin"
