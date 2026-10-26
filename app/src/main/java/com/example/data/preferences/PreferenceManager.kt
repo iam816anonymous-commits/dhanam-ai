@@ -89,7 +89,7 @@ class PreferenceManager(context: Context) {
         _cloudAiOptIn.value = optIn
     }
 
-    // --- High Security Salted PIN Management with Lockout Protection ---
+    // --- High Security Salted PIN Management with PBKDF2 (10,000 iterations) & Lockout Protection ---
     private val _appPin = MutableStateFlow(getAppPin())
     val appPin: StateFlow<String?> = _appPin.asStateFlow()
 
@@ -101,7 +101,7 @@ class PreferenceManager(context: Context) {
     fun getPinLength(): Int = securePinPrefs.getInt(KEY_PIN_LENGTH, 4)
 
     /**
-     * Initializes or updates PIN. If a PIN already exists, requires oldPin to match.
+     * Initializes or updates PIN using PBKDF2 with 10,000 iterations and per-user random salt.
      */
     fun setAppPin(pin: String?) {
         if (pin.isNullOrBlank()) {
@@ -146,17 +146,29 @@ class PreferenceManager(context: Context) {
         val salt = getSalt()
 
         val isMatch = if (salt.isNotEmpty()) {
-            stored == hashPin(inputPin, salt)
+            val hashedInput = hashPin(inputPin, salt)
+            if (stored == hashedInput) {
+                true
+            } else {
+                // Check if legacy PBKDF2 5,000 iterations hash matches, then seamlessly migrate to 10,000 iterations
+                val legacy5kHash = hashPin5000(inputPin, salt)
+                if (stored == legacy5kHash) {
+                    setAppPin(inputPin) // Upgrade to 10,000 iterations
+                    true
+                } else {
+                    false
+                }
+            }
         } else {
-            // Legacy SHA-256 fallback migration
-            val legacyHash = try {
+            // Safe legacy migration path from un-salted SHA-256 hash or raw pin
+            val legacySha256 = try {
                 val md = MessageDigest.getInstance("SHA-256")
                 val bytes = md.digest(("Dhanam_Security_Salt_v2#" + inputPin).toByteArray(Charsets.UTF_8))
                 bytes.joinToString("") { "%02x".format(it) }
             } catch (_: Exception) { "" }
 
-            if (stored == legacyHash || (stored.length in 4..6 && stored == inputPin)) {
-                // Upgrade to PBKDF2 with unique salt
+            if (stored == legacySha256 || (stored.length in 4..6 && stored == inputPin)) {
+                // Upgrade seamlessly to PBKDF2-HMAC-SHA256 (10,000 iterations) with unique salt
                 setAppPin(inputPin)
                 true
             } else {
@@ -212,18 +224,17 @@ class PreferenceManager(context: Context) {
     }
 
     private fun hashPin(pin: String, salt: ByteArray): String {
-        return try {
-            val spec = PBEKeySpec(pin.toCharArray(), salt, 5000, 256)
-            val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-            val hashBytes = factory.generateSecret(spec).encoded
-            bytesToHex(hashBytes)
-        } catch (_: Exception) {
-            // Resilient fallback with SHA-256 + per-user salt
-            val md = MessageDigest.getInstance("SHA-256")
-            md.update(salt)
-            val digest = md.digest(pin.toByteArray(Charsets.UTF_8))
-            bytesToHex(digest)
-        }
+        val spec = PBEKeySpec(pin.toCharArray(), salt, 10000, 256)
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        val hashBytes = factory.generateSecret(spec).encoded
+        return bytesToHex(hashBytes)
+    }
+
+    private fun hashPin5000(pin: String, salt: ByteArray): String {
+        val spec = PBEKeySpec(pin.toCharArray(), salt, 5000, 256)
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        val hashBytes = factory.generateSecret(spec).encoded
+        return bytesToHex(hashBytes)
     }
 
     private fun bytesToHex(bytes: ByteArray): String {

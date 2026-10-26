@@ -44,6 +44,9 @@ interface ExpenseDao {
     @Query("DELETE FROM expenses")
     suspend fun deleteAllExpenses()
 
+    @Query("SELECT * FROM expenses ORDER BY timestamp DESC")
+    suspend fun getAllExpenses(): List<Expense>
+
     @Query("SELECT * FROM expenses ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLatestExpense(): Expense?
 

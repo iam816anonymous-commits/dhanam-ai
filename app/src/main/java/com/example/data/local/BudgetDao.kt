@@ -23,4 +23,7 @@ interface BudgetDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(budgets: List<CategoryBudget>)
+
+    @Query("DELETE FROM category_budgets")
+    suspend fun deleteAllCategoryBudgets()
 }

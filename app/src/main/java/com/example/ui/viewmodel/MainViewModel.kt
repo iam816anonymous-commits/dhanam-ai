@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
+import androidx.room.withTransaction
 import androidx.lifecycle.viewModelScope
 import com.example.DhanamApplication
 import com.example.ai.AdaptiveBudgetEngine
@@ -405,8 +406,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearAllData() {
         viewModelScope.launch(Dispatchers.IO) {
-            expenseDao.deleteAllExpenses()
-            loanDao.deleteAllLoans()
+            app.database.withTransaction {
+                expenseDao.deleteAllExpenses()
+                loanDao.deleteAllLoans()
+                budgetDao.deleteAllCategoryBudgets()
+            }
             _agentMessages.value = emptyList()
             refreshMonthMetrics()
             refreshSavingsTips()
