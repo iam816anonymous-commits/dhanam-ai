@@ -44,4 +44,10 @@ class FinancialAiClientTest {
 
         assertEquals("gemini-2.0-flash", GeminiService.validateModelName("invalid-model-name"))
     }
+    @Test
+    fun blankPromptIsRejectedBeforeFirebaseInitialization() = runTest {
+        val result = GeminiService.generateWithFirebaseAi("   ")
+        assertTrue(result is GeminiCallResult.ParseError)
+    }
+
 }
