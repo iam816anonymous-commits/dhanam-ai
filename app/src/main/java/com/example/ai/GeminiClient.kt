@@ -88,7 +88,10 @@ object GeminiService {
         }
     }
 
-    @Volatile\n    var currentClient: FinancialAiClient = DefaultFinancialAiClient()\n\n    fun getActiveModel(): String = cachedRemoteModel ?: DEFAULT_MODEL
+    @Volatile
+    var currentClient: FinancialAiClient = DefaultFinancialAiClient()
+
+    fun getActiveModel(): String = cachedRemoteModel ?: DEFAULT_MODEL
 
     fun validateModelName(model: String): String =
         if (ALLOWED_MODELS.contains(model)) model else getActiveModel()
