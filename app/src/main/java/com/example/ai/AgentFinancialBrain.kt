@@ -161,7 +161,9 @@ object AgentFinancialBrain {
         - Money Lent / Debt (అప్పు, బాకీ)
         - Other Miscellaneous
         
-        If the user did not specify a payment method, use "Unknown"; never assume UPI.\n\n        OUTPUT FORMAT (Strict JSON only):
+        If the user did not specify a payment method, use "Unknown"; never assume UPI.
+
+        OUTPUT FORMAT (Strict JSON only):
         {
           "type": "EXPENSE" | "LOAN_GIVEN" | "OUT_OF_SCOPE" | "QUERY",
           "title": "Clean title",
