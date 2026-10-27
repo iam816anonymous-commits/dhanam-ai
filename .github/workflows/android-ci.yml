@@ -62,6 +62,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if ! grep -q 'android:allowBackup="false"' app/src/main/AndroidManifest.xml; then
+            echo "ERROR: Android app backup must be disabled for local-only financial data"
+            exit 1
+          fi
+          if ! grep -q '<exclude domain="root" path="."' app/src/main/res/xml/backup_rules.xml || ! grep -q '<exclude domain="root" path="."' app/src/main/res/xml/data_extraction_rules.xml; then
+            echo "ERROR: backup and device-transfer rules must exclude app data"
+            exit 1
+          fi
           if grep -q 'android.permission.INTERNET' app/src/main/AndroidManifest.xml; then
             echo "ERROR: INTERNET permission is forbidden in offline-only builds"
             exit 1
