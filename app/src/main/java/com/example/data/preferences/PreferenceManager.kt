@@ -67,7 +67,7 @@ class PreferenceManager(context: Context) {
         }?.takeIf { it.isFinite() && it >= 0.0 }
 
         val budget = parsed ?: 35000.0
-        if (storedValue !is String || storedValue.toDoubleOrNull() == null) {
+        if (storedValue !is String || parsed == null) {
             prefs.edit().putString(KEY_OVERALL_BUDGET, budget.toString()).apply()
         }
         return budget
