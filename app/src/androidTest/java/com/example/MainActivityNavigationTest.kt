@@ -3,6 +3,7 @@ package com.example
 import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
@@ -29,6 +30,29 @@ class MainActivityNavigationTest {
             composeRule.waitForIdle()
             composeRule.onNodeWithTag(screenTag).assertExists()
         }
+    }
+
+    @Test
+    fun coreScreenActionEntryPointsAreVisible() {
+        composeRule.onNodeWithTag("nav_item_expenses").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("add_expense_fab").assertExists()
+        composeRule.onNodeWithTag("expense_search_field").assertExists()
+
+        composeRule.onNodeWithTag("nav_item_khata").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("add_loan_fab").assertExists()
+        composeRule.onNodeWithTag("khata_search_field").assertExists()
+
+        composeRule.onNodeWithTag("nav_item_insights").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("export_pdf_button").assertExists()
+        composeRule.onNodeWithTag("export_csv_button").assertExists()
+
+        composeRule.onNodeWithTag("nav_item_settings").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Import expense history (CSV)").assertExists()
+        composeRule.onNodeWithText("Agent self-test").assertExists()
     }
 
     @Test
