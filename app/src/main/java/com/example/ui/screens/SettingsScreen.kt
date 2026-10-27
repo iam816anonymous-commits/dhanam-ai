@@ -1262,23 +1262,36 @@ fun SettingsScreen(
 
     if (showBudgetDialog) {
         var newBudgetStr by remember { mutableStateOf("${overallBudget.toInt()}") }
+        var budgetValidationError by remember { mutableStateOf<String?>(null) }
         AlertDialog(
             onDismissRequest = { showBudgetDialog = false },
             title = { Text(if (isTelugu) "మొత్తం బడ్జెట్ మార్చు" else "Edit Overall Monthly Budget") },
             text = {
-                OutlinedTextField(
-                    value = newBudgetStr,
-                    onValueChange = { newBudgetStr = it },
-                    label = { Text("Budget (₹)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column {
+                    OutlinedTextField(
+                        value = newBudgetStr,
+                        onValueChange = {
+                            newBudgetStr = it
+                            budgetValidationError = null
+                        },
+                        label = { Text("Budget (₹)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    budgetValidationError?.let {
+                        Text(it, color = AlertRed, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             },
             confirmButton = {
                 Button(onClick = {
-                    val amt = newBudgetStr.toDoubleOrNull() ?: 35000.0
-                    viewModel.setOverallMonthlyBudget(amt)
-                    showBudgetDialog = false
+                    val amt = newBudgetStr.toDoubleOrNull()
+                    if (amt == null || !amt.isFinite() || amt <= 0.0) {
+                        budgetValidationError = if (isTelugu) "సరైన సున్నా కంటే ఎక్కువ బడ్జెట్ నమోదు చేయండి." else "Enter a valid budget greater than zero."
+                    } else {
+                        viewModel.setOverallMonthlyBudget(amt)
+                        showBudgetDialog = false
+                    }
                 }) {
                     Text(if (isTelugu) "సేవ్" else "Save")
                 }
@@ -1293,23 +1306,36 @@ fun SettingsScreen(
 
     categoryToEdit?.let { budget ->
         var limitStr by remember { mutableStateOf("${budget.monthlyLimit.toInt()}") }
+        var limitValidationError by remember { mutableStateOf<String?>(null) }
         AlertDialog(
             onDismissRequest = { categoryToEdit = null },
             title = { Text(if (isTelugu) "${budget.category} బడ్జెట్ పరిమితి" else "Edit ${budget.category} Limit") },
             text = {
-                OutlinedTextField(
-                    value = limitStr,
-                    onValueChange = { limitStr = it },
-                    label = { Text("Limit (₹)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column {
+                    OutlinedTextField(
+                        value = limitStr,
+                        onValueChange = {
+                            limitStr = it
+                            limitValidationError = null
+                        },
+                        label = { Text("Limit (₹)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    limitValidationError?.let {
+                        Text(it, color = AlertRed, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             },
             confirmButton = {
                 Button(onClick = {
-                    val limit = limitStr.toDoubleOrNull() ?: 5000.0
-                    viewModel.updateCategoryBudget(budget.category, limit)
-                    categoryToEdit = null
+                    val limit = limitStr.toDoubleOrNull()
+                    if (limit == null || !limit.isFinite() || limit <= 0.0) {
+                        limitValidationError = if (isTelugu) "సరైన సున్నా కంటే ఎక్కువ పరిమితి నమోదు చేయండి." else "Enter a valid limit greater than zero."
+                    } else {
+                        viewModel.updateCategoryBudget(budget.category, limit)
+                        categoryToEdit = null
+                    }
                 }) {
                     Text(if (isTelugu) "సేవ్" else "Save")
                 }
