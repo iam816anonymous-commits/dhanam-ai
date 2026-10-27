@@ -68,6 +68,27 @@ class SpendingProfileAnalyzerTest {
     }
 
     @Test
+    fun ignoresZeroValueRowsAndMergesCaseVariantCategoriesAndPaymentModes() {
+        val profile = SpendingProfileAnalyzer.analyze(
+            listOf(
+                Expense(id = 1, title = "Food A", amount = 10.0, category = "Food", timestamp = 150L, paymentMode = "UPI"),
+                Expense(id = 2, title = "Food B", amount = 20.0, category = "food", timestamp = 160L, paymentMode = "upi"),
+                Expense(id = 3, title = "Zero", amount = 0.0, category = "Food", timestamp = 170L, paymentMode = "UPI")
+            ),
+            100L,
+            200L
+        )
+
+        assertEquals(2, profile.transactionCount)
+        assertEquals(30.0, profile.totalSpent, 0.001)
+        assertEquals(1, profile.categorySpending.size)
+        assertEquals("Food", profile.categorySpending.single().category)
+        assertEquals(2, profile.categorySpending.single().transactionCount)
+        assertEquals(1, profile.paymentModeTotals.size)
+        assertEquals(30.0, profile.paymentModeTotals["UPI"]!!, 0.001)
+    }
+
+    @Test
     fun detectsRepeatedExpenseTitlesAndLargestTransactions() {
         val expenses = listOf(
             Expense(id = 1, title = "Milk", amount = 30.0, category = "Food", timestamp = 10L),
