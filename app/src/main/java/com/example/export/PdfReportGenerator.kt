@@ -133,21 +133,36 @@ object PdfReportGenerator {
 
         val sortedCategories = categoryTotals.sortedByDescending { it.total }
         for (cat in sortedCategories.take(7)) {
-            val limit = categoryBudgets.firstOrNull { it.category == cat.category }?.monthlyLimit ?: 5000.0
+            val configuredLimit = categoryBudgets.firstOrNull {
+                it.category.equals(cat.category, ignoreCase = true)
+            }?.monthlyLimit?.takeIf { it.isFinite() && it > 0.0 }
             val pct = if (totalExpenses > 0) ((cat.total / totalExpenses) * 100).toInt() else 0
-            val isOver = cat.total > limit
+            val isOver = configuredLimit != null && cat.total > configuredLimit
 
             paint.color = Color.rgb(30, 41, 59)
             paint.typeface = Typeface.DEFAULT
             paint.textSize = 9.5f
             canvas.drawText(cat.category, margin + 6f, yPos, paint)
             canvas.drawText("₹${cat.total.toInt()}", margin + 190f, yPos, paint)
-            canvas.drawText("₹${limit.toInt()}", margin + 290f, yPos, paint)
+            canvas.drawText(configuredLimit?.let { "₹${it.toInt()}" } ?: "Not set", margin + 290f, yPos, paint)
             canvas.drawText("$pct%", margin + 390f, yPos, paint)
 
-            paint.color = if (isOver) Color.rgb(220, 38, 38) else Color.rgb(16, 185, 129)
+            paint.color = when {
+                configuredLimit == null -> Color.rgb(100, 116, 139)
+                isOver -> Color.rgb(220, 38, 38)
+                else -> Color.rgb(16, 185, 129)
+            }
             paint.typeface = Typeface.DEFAULT_BOLD
-            canvas.drawText(if (isOver) "OVERSPENT" else "OK", margin + 460f, yPos, paint)
+            canvas.drawText(
+                when {
+                    configuredLimit == null -> "NO LIMIT"
+                    isOver -> "OVERSPENT"
+                    else -> "OK"
+                },
+                margin + 460f,
+                yPos,
+                paint
+            )
 
             yPos += 16f
         }
