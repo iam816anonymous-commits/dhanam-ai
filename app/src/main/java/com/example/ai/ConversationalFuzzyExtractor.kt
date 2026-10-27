@@ -109,7 +109,9 @@ object ConversationalFuzzyExtractor {
             "saala kotte", "udhari kotte"
         )
         val loanRepayPatterns = listOf(
-            "returned loan", "repaid", "received back", "paid back", "returned", "gave back", "settled loan",
+            "returned loan", "repaid", "received back", "paid back", "returned", "gave back",
+            "settled loan", "settled in full", "fully settled", "fully repaid", "paid in full",
+            "cleared the loan", "loan settled",
             "అప్పు తిరిగి ఇచ్చారు", "బాకీ చెల్లించారు", "తిరిగి వచ్చింది", "తిరిగి ఇచ్చాడు", "తిరిగి ఇచ్చింది",
             "ఇచ్చేశాడు", "చెల్లించాడు", "వాపస్ ఇచ్చాడు", "బాకీ తీరింది", "అప్పు తీరింది",
             "udhar wapas mila", "karz chukaya", "wapas diya"
