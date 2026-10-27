@@ -161,13 +161,13 @@ object AgentFinancialBrain {
         - Money Lent / Debt (అప్పు, బాకీ)
         - Other Miscellaneous
         
-        OUTPUT FORMAT (Strict JSON only):
+        If the user did not specify a payment method, use "Unknown"; never assume UPI.\n\n        OUTPUT FORMAT (Strict JSON only):
         {
           "type": "EXPENSE" | "LOAN_GIVEN" | "OUT_OF_SCOPE" | "QUERY",
           "title": "Clean title",
           "amount": 0.0,
           "category": "category name",
-          "paymentMode": "UPI" | "Cash" | "Card" | "NetBanking",
+          "paymentMode": "UPI" | "Cash" | "Card" | "NetBanking" | "Unknown",
           "personName": "Person name if loan, else empty",
           "dueDateDays": 7 or null,
           "notes": "context",
