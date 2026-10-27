@@ -872,7 +872,7 @@ class ExpenseAgentEngine(
         val budgetMap = mutableMapOf<String, Double>()
         for (cat in activeCategories) {
             val b = budgetDao.getBudgetForCategory(cat.displayNameEn)
-            budgetMap[cat.displayNameEn] = b?.monthlyLimit ?: 5000.0
+            budgetMap[cat.displayNameEn] = b?.monthlyLimit ?: 0.0
         }
 
         return MonthHealth(
