@@ -602,7 +602,9 @@ object ConversationalFuzzyExtractor {
         return when {
             lower.contains("cash") || lower.contains("నగదు") || lower.contains("roked") -> "Cash"
             lower.contains("card") || lower.contains("credit") || lower.contains("debit") || lower.contains("కార్డు") -> "Card"
-            lower.contains("netbanking") || lower.contains("net banking") || lower.contains("bank transfer") -> "NetBanking"
+            lower.contains("netbanking") || lower.contains("net banking") ||
+                lower.contains("bank transfer") || lower.contains("నెట్ బ్యాంకింగ్") ||
+                lower.contains("బ్యాంక్ ట్రాన్స్‌ఫర్") -> "NetBanking"
             lower.contains("upi") || lower.contains("gpay") || lower.contains("google pay") ||
                 lower.contains("phonepe") || lower.contains("paytm") -> "UPI"
             else -> "Unknown"
