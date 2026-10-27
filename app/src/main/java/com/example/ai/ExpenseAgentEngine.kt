@@ -376,10 +376,11 @@ class ExpenseAgentEngine(
                     "gave back", "paid back", "returned", "repay", "repaid",
                     "తిరిగి ఇచ్చాడు", "తిరిగి ఇచ్చింది", "చెల్లించాడు", "చెల్లించాను"
                 ).any(lower::contains)
-                val explicitLendingLanguage = listOf(
-                    "lent", "loaned", "gave", "loan given",
-                    "అప్పు ఇచ్చాను", "అప్పు ఇచ్చా", "ఇచ్చాను", "ఇచ్చా", "ఇచ్చాడు"
-                ).any(lower::contains)
+                val explicitLendingLanguage =
+                    listOf("lent", "loaned", "gave a loan", "loan given", "as a loan", "money lent")
+                        .any(lower::contains) ||
+                    (lower.contains("అప్పు") &&
+                        listOf("ఇచ్చాను", "ఇచ్చా", "ఇచ్చాడు").any(lower::contains))
                 if (!explicitLendingLanguage || inboundBorrowingLanguage || repaymentLanguage ||
                     !personAppearsInCommand || personName.lowercase(Locale.ROOT) in genericPersonNames
                 ) return null
@@ -1637,7 +1638,8 @@ class ExpenseAgentEngine(
             return AgentResult(false, ResultType.ERROR, message, spokenSummary = message)
         }
         val explicitFullSettlement = listOf(
-            "paid in full", "fully repaid", "settled the loan", "settled in full",
+            "paid in full", "fully repaid", "settled the loan", "settled loan",
+            "fully settled", "loan settled", "settled in full",
             "paid everything", "cleared the loan", "loan is settled",
             "పూర్తిగా చెల్లించాడు", "పూర్తిగా చెల్లించాను", "అప్పు తీర్చాడు",
             "మొత్తం చెల్లించాడు", "పూర్తి బాకీ చెల్లించాడు", "అప్పు తీరింది"
