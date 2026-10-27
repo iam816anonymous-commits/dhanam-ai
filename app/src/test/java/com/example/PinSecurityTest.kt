@@ -52,4 +52,31 @@ class PinSecurityTest {
         val result5 = preferenceManager.verifyPinWithDetails("0000")
         assertTrue("5th attempt should lock out user", result5 is PinVerifyResult.LockedOut)
     }
+    @Test
+    fun legacyRawPinIsMigratedAfterSuccessfulVerification() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("dhanam_secure_pin", android.content.Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        context.getSharedPreferences("dhanam_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().putString("app_pin", "4321").commit()
+
+        val migratedManager = PreferenceManager(context)
+        assertTrue(migratedManager.verifyPin("4321"))
+        assertTrue(migratedManager.getAppPin() != "4321")
+        assertTrue(
+            context.getSharedPreferences("dhanam_prefs", android.content.Context.MODE_PRIVATE)
+                .getString("app_pin", null) == null
+        )
+        assertTrue(
+            context.getSharedPreferences("dhanam_secure_pin", android.content.Context.MODE_PRIVATE)
+                .getString("app_pin_salt", null) != null
+        )
+    }
+
+    @Test
+    fun blankPinIsNotAccepted() {
+        preferenceManager.setAppPin("1234")
+        assertFalse(preferenceManager.verifyPin(""))
+    }
+
 }

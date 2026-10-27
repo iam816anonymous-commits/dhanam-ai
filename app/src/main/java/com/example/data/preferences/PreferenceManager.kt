@@ -9,6 +9,7 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
+import java.nio.charset.StandardCharsets
 
 sealed class PinVerifyResult {
     object Success : PinVerifyResult()
@@ -89,7 +90,7 @@ class PreferenceManager(context: Context) {
         _cloudAiOptIn.value = optIn
     }
 
-    // --- High Security Salted PIN Management with PBKDF2 (10,000 iterations) & Lockout Protection ---
+    // --- High Security Salted PIN Management with PBKDF2 (120,000 iterations) & Lockout Protection ---
     private val _appPin = MutableStateFlow(getAppPin())
     val appPin: StateFlow<String?> = _appPin.asStateFlow()
 
@@ -101,7 +102,7 @@ class PreferenceManager(context: Context) {
     fun getPinLength(): Int = securePinPrefs.getInt(KEY_PIN_LENGTH, 4)
 
     /**
-     * Initializes or updates PIN using PBKDF2 with 10,000 iterations and per-user random salt.
+     * Initializes or updates PIN using PBKDF2-HMAC-SHA256 with 120,000 iterations and a per-install random salt.
      */
     fun setAppPin(pin: String?) {
         if (pin.isNullOrBlank()) {
@@ -146,29 +147,28 @@ class PreferenceManager(context: Context) {
         val salt = getSalt()
 
         val isMatch = if (salt.isNotEmpty()) {
-            val hashedInput = hashPin(inputPin, salt)
-            if (stored == hashedInput) {
-                true
-            } else {
-                // Check if legacy PBKDF2 5,000 iterations hash matches, then seamlessly migrate to 10,000 iterations
-                val legacy5kHash = hashPin5000(inputPin, salt)
-                if (stored == legacy5kHash) {
-                    setAppPin(inputPin) // Upgrade to 10,000 iterations
+            val currentHash = hashPin(inputPin, salt)
+            when {
+                constantTimeEquals(stored, currentHash) -> true
+                constantTimeEquals(stored, hashPin10000(inputPin, salt)) ||
+                    constantTimeEquals(stored, hashPin5000(inputPin, salt)) -> {
+                    // Upgrade old salted hashes immediately after successful verification.
+                    setAppPin(inputPin)
                     true
-                } else {
-                    false
                 }
+                else -> false
             }
         } else {
-            // Safe legacy migration path from un-salted SHA-256 hash or raw pin
+            // One-time compatibility path for pre-salt installations. A successful legacy
+            // verification immediately rewrites the credential using the current KDF and salt.
             val legacySha256 = try {
                 val md = MessageDigest.getInstance("SHA-256")
                 val bytes = md.digest(("Dhanam_Security_Salt_v2#" + inputPin).toByteArray(Charsets.UTF_8))
                 bytes.joinToString("") { "%02x".format(it) }
             } catch (_: Exception) { "" }
 
-            if (stored == legacySha256 || (stored.length in 4..6 && stored == inputPin)) {
-                // Upgrade seamlessly to PBKDF2-HMAC-SHA256 (10,000 iterations) with unique salt
+            if ((legacySha256.isNotEmpty() && constantTimeEquals(stored, legacySha256)) ||
+                (stored.length in 4..6 && constantTimeEquals(stored, inputPin))) {
                 setAppPin(inputPin)
                 true
             } else {
@@ -223,19 +223,27 @@ class PreferenceManager(context: Context) {
         return hexToBytes(hex)
     }
 
-    private fun hashPin(pin: String, salt: ByteArray): String {
-        val spec = PBEKeySpec(pin.toCharArray(), salt, 10000, 256)
-        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val hashBytes = factory.generateSecret(spec).encoded
-        return bytesToHex(hashBytes)
+    private fun hashPin(pin: String, salt: ByteArray): String = hashPinWithIterations(pin, salt, CURRENT_PIN_KDF_ITERATIONS)
+
+    private fun hashPin10000(pin: String, salt: ByteArray): String = hashPinWithIterations(pin, salt, 10000)
+
+    private fun hashPin5000(pin: String, salt: ByteArray): String = hashPinWithIterations(pin, salt, 5000)
+
+    private fun hashPinWithIterations(pin: String, salt: ByteArray, iterations: Int): String {
+        val spec = PBEKeySpec(pin.toCharArray(), salt, iterations, 256)
+        return try {
+            val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            bytesToHex(factory.generateSecret(spec).encoded)
+        } finally {
+            spec.clearPassword()
+        }
     }
 
-    private fun hashPin5000(pin: String, salt: ByteArray): String {
-        val spec = PBEKeySpec(pin.toCharArray(), salt, 5000, 256)
-        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val hashBytes = factory.generateSecret(spec).encoded
-        return bytesToHex(hashBytes)
-    }
+    private fun constantTimeEquals(first: String, second: String): Boolean =
+        MessageDigest.isEqual(
+            first.toByteArray(StandardCharsets.UTF_8),
+            second.toByteArray(StandardCharsets.UTF_8)
+        )
 
     private fun bytesToHex(bytes: ByteArray): String {
         return bytes.joinToString("") { "%02x".format(it) }
@@ -271,6 +279,7 @@ class PreferenceManager(context: Context) {
     }
 
     companion object {
+        private const val CURRENT_PIN_KDF_ITERATIONS = 120000
         private const val KEY_THEME_MODE = "theme_mode" // "SYSTEM", "LIGHT", "DARK"
         private const val KEY_BIOMETRIC_ENABLED = "biometric_enabled"
         private const val KEY_APP_PIN = "app_pin"

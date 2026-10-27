@@ -7,6 +7,10 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.example.data.local.AppDatabase
 import com.example.data.preferences.PreferenceManager
 import com.example.util.AppLogger
+import com.example.ai.GeminiService
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 
 class DhanamApplication : Application() {
 
@@ -26,6 +30,22 @@ class DhanamApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // Configure App Check before any Firebase AI requests. Debug tokens are only enabled in
+        // debug builds; release builds use Play Integrity.
+        try {
+            val appCheck = FirebaseAppCheck.getInstance()
+            if (BuildConfig.DEBUG) {
+                appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
+            } else {
+                appCheck.installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
+            }
+        } catch (e: Exception) {
+            // Firebase may be intentionally unconfigured in local/offline builds.
+            AppLogger.w("DhanamApplication", "App Check initialization unavailable", e)
+        }
+
+        GeminiService.initializeRemoteConfig()
         database = AppDatabase.getInstance(this)
         preferenceManager = PreferenceManager(this)
         merchantCache = com.example.ai.AdaptiveMerchantCache(this)
