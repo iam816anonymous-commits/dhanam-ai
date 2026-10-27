@@ -139,7 +139,7 @@ class ExpenseAgentEngine(
         // B. Conversational Correction: "Change previous [category] expense to [amount]"
         if (classifiedIntent == ConversationalFuzzyExtractor.DetectedIntent.MODIFY_LAST) {
             val mod = ConversationalFuzzyExtractor.parseModificationRequest(trimmed, isTelugu)
-            if (mod != null && mod.newAmount > 0.0) {
+            if (mod != null && mod.newAmount.isFinite() && mod.newAmount > 0.0) {
                 val targetExpense = if (mod.targetCategory != null) {
                     expenseDao.getLatestExpenseByCategory(mod.targetCategory) ?: expenseDao.getLatestExpense()
                 } else {
@@ -1488,7 +1488,7 @@ class ExpenseAgentEngine(
 
     private suspend fun handleSetBudget(input: String, isTelugu: Boolean): AgentResult {
         val amount = extractAmount(input)
-        if (amount <= 0.0) {
+        if (!amount.isFinite() || amount <= 0.0) {
             val err = if (isTelugu) "బడ్జెట్ మొత్తం స్పష్టంగా చెప్పండి (ఉదా: 'నెల బడ్జెట్ 30000 గా పెట్టు')."
             else "Please specify a budget amount (e.g. 'Set budget to 30000')."
             return AgentResult(success = false, type = ResultType.ERROR, message = err, spokenSummary = err)
