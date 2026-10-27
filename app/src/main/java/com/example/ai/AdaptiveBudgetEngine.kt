@@ -48,13 +48,17 @@ object AdaptiveBudgetEngine {
     ): AdaptiveBudgetPlan {
         val activeCategories = ExpenseCategory.entries.filter { it != ExpenseCategory.LENDING }
         val safeOverallBudget = overallBudget.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
-        val totalSpent = historicalTotals.sumOf { it.total.takeIf(Double::isFinite)?.coerceAtLeast(0.0) ?: 0.0 }
+        val totalSpent = historicalTotals.sumOf { categoryTotal ->
+            categoryTotal.total.takeIf { amount -> amount.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+        }
 
         // Normalize imported short labels and in-app canonical labels to the same category.
         val spendMap = activeCategories.associateWith { category ->
             historicalTotals
                 .filter { ExpenseCategory.matchesLabel(it.category, category) }
-                .sumOf { it.total.takeIf(Double::isFinite)?.coerceAtLeast(0.0) ?: 0.0 }
+                .sumOf { categoryTotal ->
+                    categoryTotal.total.takeIf { amount -> amount.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+                }
         }
 
         val hasSignificantHistory = totalSpent > 200.0 && totalExpenseCount >= 3
