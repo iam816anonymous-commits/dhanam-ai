@@ -680,7 +680,7 @@ fun AddLoanDialog(
                     value = personName,
                     onValueChange = {
                         personName = it
-                        editValidationError = null
+                        validationError = null
                     },
                     label = { Text(if (isTelugu) "వ్యక్తి పేరు (Person Name)" else "Person Name") },
                     modifier = Modifier.fillMaxWidth(),
@@ -890,7 +890,10 @@ fun EditLoanDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = personName,
-                    onValueChange = { personName = it },
+                    onValueChange = {
+                        personName = it
+                        editValidationError = null
+                    },
                     label = { Text(if (isTelugu) "వ్యక్తి పేరు (Person Name)" else "Person Name") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
