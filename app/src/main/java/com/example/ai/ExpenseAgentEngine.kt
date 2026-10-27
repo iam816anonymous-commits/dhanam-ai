@@ -1429,8 +1429,16 @@ class ExpenseAgentEngine(
     private suspend fun handleQueryCategorySpending(input: String, isTelugu: Boolean): AgentResult {
         val cat = determineCategory(input.lowercase(Locale.ROOT))
         val health = calculateCurrentMonthHealth()
-        val catSpent = health.categorySpent[cat.displayNameEn] ?: 0.0
-        val catBudget = health.categoryBudgets[cat.displayNameEn] ?: 0.0
+        // Imported CSVs may use short labels ("Food", "Transport") while in-app records
+        // use canonical labels ("Food & Groceries", "Transport & Fuel"). Match both safely.
+        val catSpent = health.categorySpent.entries
+            .filter { com.example.data.model.ExpenseCategory.fromString(it.key) == cat }
+            .sumOf { it.value }
+        val catBudget = health.categoryBudgets[cat.displayNameEn]
+            ?: health.categoryBudgets.entries.firstOrNull {
+                com.example.data.model.ExpenseCategory.fromString(it.key) == cat
+            }?.value
+            ?: 0.0
 
         val msg = if (isTelugu) {
             val teName = toTeluguSpokenCategory(cat.displayNameEn)
