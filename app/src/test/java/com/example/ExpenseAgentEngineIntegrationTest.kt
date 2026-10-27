@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.ai.ExpenseAgentEngine
 import com.example.ai.ResultType
 import com.example.data.local.AppDatabase
+import com.example.data.model.Expense
 import com.example.data.preferences.PreferenceManager
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -211,6 +212,23 @@ class ExpenseAgentEngineIntegrationTest {
         val budgetResult = engine.processUserInput("నా బడ్జెట్ ఎంత మిగిలింది?", forceLanguage = "te")
         assertTrue(budgetResult.success)
         assertTrue(budgetResult.message.contains("సురక్షిత రోజువారీ వ్యయం") || budgetResult.message.contains("మిగిలిన"))
+    }
+
+    @Test
+    fun categorySpendingQueryIncludesShortLabelsImportedFromCsv() = runBlocking {
+        db.expenseDao().insertExpense(
+            Expense(
+                title = "Groceries",
+                amount = 42.0,
+                category = "Food",
+                timestamp = System.currentTimeMillis()
+            )
+        )
+
+        val result = engine.processUserInput("How much did I spend on food?", forceLanguage = "en")
+
+        assertTrue(result.success)
+        assertTrue(result.message.contains("42"))
     }
 
     @Test
