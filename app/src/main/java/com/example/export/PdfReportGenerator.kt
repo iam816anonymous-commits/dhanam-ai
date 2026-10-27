@@ -9,6 +9,7 @@ import android.graphics.pdf.PdfDocument
 import androidx.core.content.FileProvider
 import com.example.data.local.CategoryTotal
 import com.example.data.model.CategoryBudget
+import com.example.data.model.ExpenseCategory
 import com.example.data.model.Expense
 import com.example.data.model.Loan
 import java.io.File
@@ -133,8 +134,12 @@ object PdfReportGenerator {
 
         val sortedCategories = categoryTotals.sortedByDescending { it.total }
         for (cat in sortedCategories.take(7)) {
-            val configuredLimit = categoryBudgets.firstOrNull {
-                it.category.equals(cat.category, ignoreCase = true)
+            val mappedCategory = ExpenseCategory.entries.firstOrNull {
+                ExpenseCategory.matchesLabel(cat.category, it)
+            }
+            val configuredLimit = categoryBudgets.firstOrNull { budget ->
+                budget.category.equals(cat.category, ignoreCase = true) ||
+                    (mappedCategory != null && ExpenseCategory.matchesLabel(budget.category, mappedCategory))
             }?.monthlyLimit?.takeIf { it.isFinite() && it > 0.0 }
             val pct = if (totalExpenses > 0) ((cat.total / totalExpenses) * 100).toInt() else 0
             val isOver = configuredLimit != null && cat.total > configuredLimit
