@@ -92,5 +92,13 @@ class CsvExpenseImporterTest {
             failed = true
         }
         assertTrue(failed)
+
+        failed = false
+        try {
+            CsvExpenseImporter.parse(StringReader("Date,Title,Category,Amount\n27/10/2026,Gro\"ceries,Food,10"))
+        } catch (_: IllegalArgumentException) {
+            failed = true
+        }
+        assertTrue("A quote inside an unquoted field must be rejected", failed)
     }
 }
