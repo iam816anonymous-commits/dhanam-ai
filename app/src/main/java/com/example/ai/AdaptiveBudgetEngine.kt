@@ -3,7 +3,7 @@ package com.example.ai
 import com.example.data.local.CategoryTotal
 import com.example.data.model.CategoryBudget
 import com.example.data.model.ExpenseCategory
-import kotlin.math.roundToInt
+import kotlin.math.floor
 
 /**
  * AdaptiveBudgetEngine:
@@ -16,14 +16,15 @@ object AdaptiveBudgetEngine {
 
     // Initial baseline allocation weights when no spending history exists (sums to 1.0)
     private val baselineWeights = mapOf(
-        ExpenseCategory.FOOD to 0.28,          // 28% (~₹9,800 of ₹35k) - Groceries, vegetables, milk
-        ExpenseCategory.TRANSPORT to 0.15,     // 15% (~₹5,250 of ₹35k) - Petrol, fuel, commute
-        ExpenseCategory.BILLS to 0.18,         // 18% (~₹6,300 of ₹35k) - Electricity, mobile recharge, wifi
-        ExpenseCategory.DINING to 0.10,        // 10% (~₹3,500 of ₹35k) - Dining out, snacks, tea
-        ExpenseCategory.HEALTH to 0.09,        // 9%  (~₹3,150 of ₹35k) - Medicines, healthcare
-        ExpenseCategory.SHOPPING to 0.08,      // 8%  (~₹2,800 of ₹35k) - Clothes, personal shopping
-        ExpenseCategory.EDUCATION to 0.06,     // 6%  (~₹2,100 of ₹35k) - Fees, books, learning
-        ExpenseCategory.OTHER to 0.06          // 6%  (~₹2,100 of ₹35k) - Miscellaneous emergencies
+        ExpenseCategory.FOOD to 0.28,          // 28% - Groceries, vegetables, milk
+        ExpenseCategory.TRANSPORT to 0.15,     // 15% - Petrol, fuel, commute
+        ExpenseCategory.BILLS to 0.18,         // 18% - Electricity, mobile recharge, wifi
+        ExpenseCategory.DINING to 0.10,        // 10% - Dining out, snacks, tea
+        ExpenseCategory.HEALTH to 0.09,        // 9% - Medicines, healthcare
+        ExpenseCategory.SHOPPING to 0.08,      // 8% - Clothes, personal shopping
+        ExpenseCategory.EDUCATION to 0.06,     // 6% - Fees, books, learning
+        ExpenseCategory.ENTERTAINMENT to 0.04, // 4% - Movies and recreation
+        ExpenseCategory.OTHER to 0.02          // 2% - Miscellaneous emergencies
     )
 
     data class AdaptiveBudgetPlan(
@@ -46,12 +47,18 @@ object AdaptiveBudgetEngine {
         totalExpenseCount: Int = 0
     ): AdaptiveBudgetPlan {
         val activeCategories = ExpenseCategory.entries.filter { it != ExpenseCategory.LENDING }
-        val totalSpent = historicalTotals.sumOf { it.total }
+        val safeOverallBudget = overallBudget.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        val totalSpent = historicalTotals.sumOf { categoryTotal ->
+            categoryTotal.total.takeIf { amount -> amount.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+        }
 
-        // Category spend lookup
-        val spendMap = mutableMapOf<String, Double>()
-        for (ct in historicalTotals) {
-            spendMap[ct.category.lowercase()] = ct.total
+        // Normalize imported short labels and in-app canonical labels to the same category.
+        val spendMap = activeCategories.associateWith { category ->
+            historicalTotals
+                .filter { ExpenseCategory.matchesLabel(it.category, category) }
+                .sumOf { categoryTotal ->
+                    categoryTotal.total.takeIf { amount -> amount.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+                }
         }
 
         val hasSignificantHistory = totalSpent > 200.0 && totalExpenseCount >= 3
@@ -61,9 +68,7 @@ object AdaptiveBudgetEngine {
         for (cat in activeCategories) {
             val baseWeight = baselineWeights[cat] ?: 0.08
             if (hasSignificantHistory) {
-                val catSpent = spendMap[cat.displayNameEn.lowercase()]
-                    ?: spendMap[cat.name.lowercase()]
-                    ?: 0.0
+                val catSpent = spendMap[cat] ?: 0.0
                 val actualRatio = (catSpent / totalSpent).coerceIn(0.02, 0.55)
 
                 // Adaptive blending: As history grows, user actual habits take stronger priority (up to 75%)
@@ -77,41 +82,46 @@ object AdaptiveBudgetEngine {
             }
         }
 
-        // Allocate budget rounded to clean 50-rupee units
-        var remainingBudget = overallBudget
+        // Allocate in ₹50 increments where possible, without creating money or negative budgets.
+        // A ₹300 floor is used only when the total budget can afford it for every category.
+        val minimumPerCategory = if (safeOverallBudget >= 300.0 * activeCategories.size) 300.0 else 0.0
+        val distributableBudget = (safeOverallBudget - minimumPerCategory * activeCategories.size).coerceAtLeast(0.0)
+        var remainingBudget = safeOverallBudget
         val budgets = mutableListOf<CategoryBudget>()
 
         activeCategories.forEachIndexed { index, cat ->
             val normWeight = (learnedWeights[cat] ?: 0.10) / totalWeight
-            if (index == activeCategories.lastIndex) {
-                // Ensure exact penny-perfect total match
-                val finalLimit = remainingBudget.coerceAtLeast(300.0)
-                budgets.add(CategoryBudget(cat.displayNameEn, finalLimit))
+            val limit = if (index == activeCategories.lastIndex) {
+                remainingBudget
             } else {
-                val rawLimit = overallBudget * normWeight
-                val roundedLimit = ((rawLimit / 50.0).roundToInt() * 50).toDouble().coerceAtLeast(300.0)
-                remainingBudget -= roundedLimit
-                budgets.add(CategoryBudget(cat.displayNameEn, roundedLimit))
+                val weightedShare = distributableBudget * normWeight
+                val roundedShare = floor(weightedShare / 50.0) * 50.0
+                val allocated = (minimumPerCategory + roundedShare).coerceAtMost(remainingBudget).coerceAtLeast(0.0)
+                remainingBudget -= allocated
+                allocated
             }
+            budgets.add(CategoryBudget(cat.displayNameEn, limit.coerceAtLeast(0.0)))
         }
 
-        // Identify primary spending category
-        val topCategory = historicalTotals.maxByOrNull { it.total }?.category
+        // Identify primary spending category and report its canonical label when known.
+        val topCategory = historicalTotals.maxByOrNull { it.total }?.category?.let { raw ->
+            activeCategories.firstOrNull { ExpenseCategory.matchesLabel(raw, it) }?.displayNameEn ?: raw
+        }
 
         val insightTe = if (hasSignificantHistory) {
             "మీ గత ఖర్చుల అలవాట్లను బట్టి బడ్జెట్ సర్దుబాటు చేయబడింది. ఎక్కువగా ఖర్చు అవుతున్న విభాగాలకు తగిన నిధులు కేటాయించాను."
         } else {
-            "మొత్తం ₹${overallBudget.toInt()} బడ్జెట్ ప్రారంభ నిష్పత్తి ప్రకారం విభజించబడింది. మీరు ఖర్చులు నమోదు చేసే కొద్దీ మీ అలవాట్లకు అనుగుణంగా మారుతుంది."
+            "మొత్తం ₹${safeOverallBudget.toInt()} బడ్జెట్ ప్రారంభ నిష్పత్తి ప్రకారం విభజించబడింది. మీరు ఖర్చులు నమోదు చేసే కొద్దీ మీ అలవాట్లకు అనుగుణంగా మారుతుంది."
         }
 
         val insightEn = if (hasSignificantHistory) {
             "Budget adaptively allocated based on your personal spending habits. Heavily used categories received higher limits."
         } else {
-            "Budget of ₹${overallBudget.toInt()} distributed using smart financial baseline. Limits will dynamically adapt as you log expenses."
+            "Budget of ₹${safeOverallBudget.toInt()} distributed using smart financial baseline. Limits will dynamically adapt as you log expenses."
         }
 
         return AdaptiveBudgetPlan(
-            totalBudget = overallBudget,
+            totalBudget = safeOverallBudget,
             categoryBudgets = budgets,
             isLearnedFromHabits = hasSignificantHistory,
             totalTransactionsAnalyzed = totalExpenseCount,

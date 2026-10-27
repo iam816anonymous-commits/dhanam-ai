@@ -68,6 +68,16 @@ class ConversationalFuzzyExtractorTest {
     }
 
     @Test
+    fun paymentModeIsUnknownUnlessTheCommandSpecifiesIt() {
+        assertEquals("Unknown", ConversationalFuzzyExtractor.detectPaymentMode("tea 50"))
+        assertEquals("UPI", ConversationalFuzzyExtractor.detectPaymentMode("paid using UPI"))
+        assertEquals("Cash", ConversationalFuzzyExtractor.detectPaymentMode("paid with cash"))
+        assertEquals("Card", ConversationalFuzzyExtractor.detectPaymentMode("paid with debit card"))
+        assertEquals("Unknown", ConversationalFuzzyExtractor.detectPaymentMode("paid at bank"))
+        assertEquals("NetBanking", ConversationalFuzzyExtractor.detectPaymentMode("paid by bank transfer"))
+    }
+
+    @Test
     fun testClauseExtractionAndMultipliers() {
         // 5k = 5000
         val num1 = ConversationalFuzzyExtractor.extractNumber("bike service 5k")
@@ -84,6 +94,7 @@ class ConversationalFuzzyExtractorTest {
         val clause1 = ConversationalFuzzyExtractor.extractClause(clauses[0], false)
         assertNotNull(clause1)
         assertEquals(50.0, clause1!!.amount, 0.01)
+        assertEquals("Unknown", clause1.paymentMode)
 
         val clause2 = ConversationalFuzzyExtractor.extractClause(clauses[1], false)
         assertNotNull(clause2)

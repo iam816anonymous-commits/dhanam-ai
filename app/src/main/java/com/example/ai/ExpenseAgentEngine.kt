@@ -12,6 +12,7 @@ import com.example.data.model.Loan
 import com.example.data.preferences.PreferenceManager
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.CancellationException
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -56,7 +57,7 @@ data class ParsedItem(
     val category: String,
     val personName: String = "",
     val dueDateDays: Int = 7,
-    val paymentMode: String = "UPI",
+    val paymentMode: String = "Unknown",
     val notes: String = ""
 )
 
@@ -138,11 +139,34 @@ class ExpenseAgentEngine(
         // B. Conversational Correction: "Change previous [category] expense to [amount]"
         if (classifiedIntent == ConversationalFuzzyExtractor.DetectedIntent.MODIFY_LAST) {
             val mod = ConversationalFuzzyExtractor.parseModificationRequest(trimmed, isTelugu)
-            if (mod != null && mod.newAmount > 0.0) {
+            if (mod != null && mod.newAmount.isFinite() && mod.newAmount > 0.0) {
                 val targetExpense = if (mod.targetCategory != null) {
-                    expenseDao.getLatestExpenseByCategory(mod.targetCategory) ?: expenseDao.getLatestExpense()
+                    val requestedCategory = com.example.data.model.ExpenseCategory.entries.firstOrNull {
+                        com.example.data.model.ExpenseCategory.matchesLabel(mod.targetCategory, it)
+                    }
+                    expenseDao.getAllExpenses().firstOrNull { expense ->
+                        if (requestedCategory != null) {
+                            com.example.data.model.ExpenseCategory.matchesLabel(expense.category, requestedCategory)
+                        } else {
+                            expense.category.equals(mod.targetCategory, ignoreCase = true)
+                        }
+                    }
                 } else {
                     expenseDao.getLatestExpense()
+                }
+
+                if (mod.targetCategory != null && targetExpense == null) {
+                    val message = if (isTelugu) {
+                        "${mod.targetCategory} వర్గంలో మునుపటి ఖర్చు కనుగొనబడలేదు. ఏ రికార్డునూ మార్చలేదు."
+                    } else {
+                        "No previous expense was found in category '${mod.targetCategory}'. Nothing was changed."
+                    }
+                    return AgentResult(
+                        success = false,
+                        type = ResultType.ERROR,
+                        message = message,
+                        spokenSummary = message
+                    )
                 }
 
                 if (targetExpense != null) {
@@ -233,7 +257,7 @@ class ExpenseAgentEngine(
 
         for (clause in itemClauses) {
             val fuzzyExtracted = ConversationalFuzzyExtractor.extractClause(clause, isTelugu)
-            if (fuzzyExtracted != null && fuzzyExtracted.amount > 0.0) {
+            if (fuzzyExtracted != null && fuzzyExtracted.amount.isFinite() && fuzzyExtracted.amount > 0.0) {
                 parsedItems.add(
                     ParsedItem(
                         type = if (fuzzyExtracted.isLoan) "LOAN_GIVEN" else "EXPENSE",
@@ -247,7 +271,7 @@ class ExpenseAgentEngine(
                 )
             } else {
                 val item = parseSingleItem(clause, isTelugu)
-                if (item != null && item.amount > 0.0) {
+                if (item != null && item.amount.isFinite() && item.amount > 0.0) {
                     parsedItems.add(item)
                 }
             }
@@ -303,14 +327,14 @@ class ExpenseAgentEngine(
         val prompt = """
             You are a strict command parser for a local personal-finance Android app.
             Interpret the user's command and return exactly one JSON object, with no markdown:
-            {"type":"EXPENSE"|"LOAN_GIVEN"|"UNKNOWN","title":"...","amount":0.0,"category":"...","personName":"","dueDateDays":7,"paymentMode":"UPI"|"Cash"|"Card"|"NetBanking","notes":""}
+            {"type":"EXPENSE"|"LOAN_GIVEN"|"UNKNOWN","title":"...","amount":0.0,"category":"...","personName":"","dueDateDays":7,"paymentMode":"UPI"|"Cash"|"Card"|"NetBanking"|"Unknown","notes":""}
             Rules:
             - Use only details explicitly present in the user's command. Never invent a person, amount, date, or transaction.
             - The amount must be copied from the user's text. If the command is not clearly a single expense or a money-lent transaction, use UNKNOWN.
             - For LOAN_GIVEN, personName must be explicitly present in the command.
             - Keep title short and natural. Use Telugu for Telugu commands and English for English commands.
-            - category must be one of Food, Dining, Transport, Shopping, Bills, Entertainment, Health, Education, Other, Lending.
-            - paymentMode must be one of UPI, Cash, Card, NetBanking.
+            - category must be one of Food, Dining, Transport, Shopping, Bills, Entertainment, Health, Education, Other.
+            - paymentMode must be one of UPI, Cash, Card, NetBanking, Unknown. Use Unknown if the user did not specify it.
             User language: ${if (isTelugu) "Telugu" else "English"}
             User command: <command>$input</command>
         """.trimIndent()
@@ -335,23 +359,44 @@ class ExpenseAgentEngine(
             val personName = json.optString("personName").trim().take(80)
             if (type == "LOAN_GIVEN") {
                 val lower = input.lowercase(Locale.ROOT)
-                val hasLendingLanguage = listOf(
-                    "lent", "loan", "borrow", "gave", "అప్పు", "ఇచ్చాను", "ఇచ్చా", "బాకీ"
+                val tokenPattern = Regex("[^\\p{L}\\p{N}]+")
+                val commandTokens = lower.split(tokenPattern).filter { it.isNotBlank() }
+                val personTokens = personName.lowercase(Locale.ROOT).split(tokenPattern).filter { it.isNotBlank() }
+                val personAppearsInCommand = personTokens.isNotEmpty() &&
+                    commandTokens.windowed(personTokens.size).any { it == personTokens }
+                val genericPersonNames = setOf(
+                    "friend", "borrower", "someone", "somebody", "person", "him", "her",
+                    "స్నేహితుడు", "వ్యక్తి", "ఎవరైనా"
+                )
+                val inboundBorrowingLanguage = listOf(
+                    "borrowed from", "borrow from", "i borrowed", "took a loan",
+                    "take a loan", "got a loan", "అప్పు తీసుకున్న", "తీసుకున్నాను", "తీసుకున్నా"
                 ).any(lower::contains)
-                if (!hasLendingLanguage || personName.isBlank()) return null
+                val repaymentLanguage = listOf(
+                    "gave back", "paid back", "returned", "repay", "repaid",
+                    "తిరిగి ఇచ్చాడు", "తిరిగి ఇచ్చింది", "చెల్లించాడు", "చెల్లించాను"
+                ).any(lower::contains)
+                val explicitLendingLanguage =
+                    listOf("lent", "loaned", "gave a loan", "loan given", "as a loan", "money lent")
+                        .any(lower::contains) ||
+                    (lower.contains("అప్పు") &&
+                        listOf("ఇచ్చాను", "ఇచ్చా", "ఇచ్చాడు").any(lower::contains))
+                if (!explicitLendingLanguage || inboundBorrowingLanguage || repaymentLanguage ||
+                    !personAppearsInCommand || personName.lowercase(Locale.ROOT) in genericPersonNames
+                ) return null
             }
 
             val allowedCategories = setOf(
                 "Food", "Dining", "Transport", "Shopping", "Bills",
-                "Entertainment", "Health", "Education", "Other", "Lending"
+                "Entertainment", "Health", "Education", "Other"
             )
             val rawCategory = json.optString("category")
             val category = allowedCategories.firstOrNull { it.equals(rawCategory, ignoreCase = true) }
                 ?: "Other"
-            val allowedPaymentModes = setOf("UPI", "Cash", "Card", "NetBanking")
+            val allowedPaymentModes = setOf("UPI", "Cash", "Card", "NetBanking", "Unknown")
             val rawPayment = json.optString("paymentMode")
             val paymentMode = allowedPaymentModes.firstOrNull { it.equals(rawPayment, ignoreCase = true) }
-                ?: "UPI"
+                ?: "Unknown"
 
             ParsedItem(
                 type = type,
@@ -361,8 +406,12 @@ class ExpenseAgentEngine(
                 personName = personName,
                 dueDateDays = json.optInt("dueDateDays", 7).coerceIn(1, 365),
                 paymentMode = paymentMode,
-                notes = json.optString("notes").take(300)
+                notes = json.optString("notes").trim().take(300)
+                    .takeIf { it.isNotBlank() && input.contains(it, ignoreCase = true) }
+                    .orEmpty()
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Exception) {
             com.example.util.AppLogger.w(
                 "ExpenseAgentEngine",
@@ -612,7 +661,7 @@ class ExpenseAgentEngine(
                 category = ExpenseCategory.LENDING.displayNameEn,
                 personName = person,
                 dueDateDays = dueDays,
-                paymentMode = if (lower.contains("cash") || lower.contains("నగదు")) "Cash" else "UPI",
+                paymentMode = ConversationalFuzzyExtractor.detectPaymentMode(text),
                 notes = text
             )
         }
@@ -620,13 +669,8 @@ class ExpenseAgentEngine(
         val cachedMerchant = merchantCache?.resolveMerchant(lower)
         val category = cachedMerchant?.first ?: determineCategory(lower)
         val title = extractTitle(text, category, isTelugu)
-        val paymentMode = when {
-            lower.contains("cash") || lower.contains("నగదు") -> "Cash"
-            lower.contains("card") || lower.contains("కార్డ్") -> "Card"
-            lower.contains("netbanking") || lower.contains("బ్యాంక్") -> "NetBanking"
-            cachedMerchant != null -> cachedMerchant.second
-            else -> "UPI"
-        }
+        // Merchant history can suggest a category, but must not invent how this transaction was paid.
+        val paymentMode = ConversationalFuzzyExtractor.detectPaymentMode(text)
 
         return ParsedItem(
             type = "EXPENSE",
@@ -714,14 +758,14 @@ class ExpenseAgentEngine(
         }
         return when {
             text.contains("కూరగాయ") || text.contains("పాలు") || text.contains("కిరాణా") ||
-                    text.contains("grocery") || text.contains("vegetable") || text.contains("milk") ||
+                    text.contains("grocery") || text.contains("vegetable") || text.contains("milk") || text.contains("food") ||
                     text.contains("supermarket") || text.contains("fruits") || text.contains("పండ్లు") ||
                     text.contains("ತರಕಾರಿ") || text.contains("ಹಾಲು") || text.contains("ಸಬ್ಜಿ") ||
                     text.contains("दूध") || text.contains("सब्जी") || text.contains("राशन") -> ExpenseCategory.FOOD
 
             text.contains("బిర్యానీ") || text.contains("హోటల్") || text.contains("భోజనం") ||
                     text.contains("టిఫిన్") || text.contains("టీ") || text.contains("కాఫీ") ||
-                    text.contains("restaurant") || text.contains("food") || text.contains("dinner") ||
+                    text.contains("restaurant") || text.contains("dinner") ||
                     text.contains("lunch") || text.contains("swiggy") || text.contains("zomato") ||
                     text.contains("snacks") || text.contains("coffee") || text.contains("pizza") ||
                     text.contains("ಹೋಟೆಲ್") || text.contains("ಊಟ") || text.contains("ತಿಂಡಿ") ||
@@ -770,10 +814,37 @@ class ExpenseAgentEngine(
         return ConversationalFuzzyExtractor.extractTitle(text, category, isTelugu)
     }
 
+    private fun validateParsedItem(item: ParsedItem): String? {
+        if (item.type != "EXPENSE" && item.type != "LOAN_GIVEN") {
+            return "Unsupported financial action."
+        }
+        if (!item.amount.isFinite() || item.amount <= 0.0) {
+            return "Amount must be a finite number greater than zero."
+        }
+        if (item.title.isBlank()) {
+            return "A transaction description is required."
+        }
+        if (item.type == "LOAN_GIVEN" && item.personName.isBlank()) {
+            return "A borrower name is required to record money lent."
+        }
+        if (item.type == "LOAN_GIVEN" && item.dueDateDays !in 1..3650) {
+            return "Loan due date must be between 1 and 3650 days."
+        }
+        return null
+    }
+
     /**
      * Executes single parsed item (Expense or Loan).
      */
     private suspend fun executeSingleItem(item: ParsedItem, isTelugu: Boolean): AgentResult {
+        validateParsedItem(item)?.let { reason ->
+            return AgentResult(
+                success = false,
+                type = ResultType.ERROR,
+                message = if (isTelugu) "రికార్డు సేవ్ చేయలేదు: $reason" else "Nothing was saved: $reason",
+                spokenSummary = if (isTelugu) "రికార్డు సేవ్ చేయలేదు." else "Nothing was saved."
+            )
+        }
         if (item.type == "LOAN_GIVEN") {
             val cal = Calendar.getInstance()
             cal.add(Calendar.DAY_OF_YEAR, item.dueDateDays)
@@ -875,6 +946,16 @@ class ExpenseAgentEngine(
      * Executes batch multi-item input (e.g. "Vegetables 200, Petrol 500, Lunch 350").
      */
     private suspend fun executeBatchItems(items: List<ParsedItem>, isTelugu: Boolean): AgentResult {
+        val invalidReason = items.firstNotNullOfOrNull(::validateParsedItem)
+        if (invalidReason != null || !items.sumOf { it.amount }.isFinite()) {
+            val reason = invalidReason ?: "Combined transaction total is too large to represent safely."
+            return AgentResult(
+                success = false,
+                type = ResultType.ERROR,
+                message = if (isTelugu) "ఏ లావాదేవీ కూడా సేవ్ చేయలేదు: $reason" else "No transactions were saved: $reason",
+                spokenSummary = if (isTelugu) "లావాదేవీలు సేవ్ చేయలేదు." else "No transactions were saved."
+            )
+        }
         val database = appDatabase
         return if (database != null) {
             // A multi-item command is one logical operation: either every record is saved or none is.
@@ -986,6 +1067,7 @@ class ExpenseAgentEngine(
         calendar.set(Calendar.HOUR_OF_DAY, 0)
         calendar.set(Calendar.MINUTE, 0)
         calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
         val startOfMonth = calendar.timeInMillis
         val now = System.currentTimeMillis()
 
@@ -998,10 +1080,13 @@ class ExpenseAgentEngine(
         val dailySafe = (remaining / daysRemaining).toInt()
 
         val activeCategories = ExpenseCategory.entries.filter { it != ExpenseCategory.LENDING }
+        val savedCategoryBudgets = budgetDao.getAllCategoryBudgets()
         val budgetMap = mutableMapOf<String, Double>()
         for (cat in activeCategories) {
-            val b = budgetDao.getBudgetForCategory(cat.displayNameEn)
-            budgetMap[cat.displayNameEn] = b?.monthlyLimit ?: 0.0
+            val configuredLimit = savedCategoryBudgets.firstOrNull {
+                ExpenseCategory.matchesLabel(it.category, cat)
+            }?.monthlyLimit?.takeIf { it.isFinite() && it > 0.0 }
+            budgetMap[cat.displayNameEn] = configuredLimit ?: 0.0
         }
 
         return MonthHealth(
@@ -1036,12 +1121,25 @@ class ExpenseAgentEngine(
         val daysRemaining = (daysInMonth - dayOfMonth + 1).coerceAtLeast(1)
 
         calendar.set(Calendar.DAY_OF_MONTH, 1)
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
         val startOfMonth = calendar.timeInMillis
         val now = System.currentTimeMillis()
 
         val categoryTotals = expenseDao.getCategoryTotalsInRange(startOfMonth, now)
         val totalSpent = categoryTotals.sumOf { it.total }
         val overallBudget = preferenceManager.getOverallBudget()
+        if (!overallBudget.isFinite() || overallBudget <= 0.0) {
+            return if (isTelugu) listOf(
+                "💡 నెలవారీ బడ్జెట్ సెట్ చేయలేదు. ఖచ్చితమైన రోజువారీ ఖర్చు సూచనల కోసం ముందుగా బడ్జెట్ సెట్ చేయండి.",
+                "💡 మీ ఖర్చులను క్రమం తప్పకుండా నమోదు చేయండి; అప్పుడు మీ ఖర్చుల నమూనాలను విశ్లేషించగలను."
+            ) else listOf(
+                "💡 No monthly budget is configured. Set one to get a meaningful daily spending allowance.",
+                "💡 Keep recording expenses so your spending patterns can be analyzed accurately."
+            )
+        }
         val remainingBudget = (overallBudget - totalSpent).coerceAtLeast(0.0)
         val dailySafeToSpend = (remainingBudget / daysRemaining).toInt()
 
@@ -1205,7 +1303,20 @@ class ExpenseAgentEngine(
         val health = calculateCurrentMonthHealth()
         val totalSpent = health.totalSpent
         val budget = health.overallBudget
-        val percent = if (budget > 0) (totalSpent / budget * 100).toInt() else 0
+        if (!budget.isFinite() || budget <= 0.0) {
+            val message = if (isTelugu) {
+                "ఈ నెల ఖర్చు ₹${totalSpent.toInt()}. మొత్తం నెలవారీ బడ్జెట్ ఇంకా సెట్ చేయలేదు."
+            } else {
+                "This month's recorded spending is ₹${totalSpent.toInt()}. No monthly budget is configured yet."
+            }
+            return AgentResult(
+                success = true,
+                type = ResultType.INSIGHTS,
+                message = message,
+                spokenSummary = message
+            )
+        }
+        val percent = (totalSpent / budget * 100).toInt()
 
         val topCat = health.categorySpent.maxByOrNull { it.value }
 
@@ -1233,6 +1344,19 @@ class ExpenseAgentEngine(
         val health = calculateCurrentMonthHealth()
         val budget = health.overallBudget
         val spent = health.totalSpent
+        if (!budget.isFinite() || budget <= 0.0) {
+            val message = if (isTelugu) {
+                "ఈ నెల నమోదు చేసిన ఖర్చు: ₹${spent.toInt()}. ఇంకా నెలవారీ బడ్జెట్ సెట్ చేయలేదు; రోజువారీ పరిమితిని లెక్కించలేను."
+            } else {
+                "Recorded spending this month: ₹${spent.toInt()}. No monthly budget is configured, so I can't calculate a daily allowance."
+            }
+            return AgentResult(
+                success = true,
+                type = ResultType.INSIGHTS,
+                message = message,
+                spokenSummary = message
+            )
+        }
         val remaining = (budget - spent).coerceAtLeast(0.0)
         val dailySafe = health.dailySafeToSpend
 
@@ -1340,14 +1464,33 @@ class ExpenseAgentEngine(
     private suspend fun handleQueryCategorySpending(input: String, isTelugu: Boolean): AgentResult {
         val cat = determineCategory(input.lowercase(Locale.ROOT))
         val health = calculateCurrentMonthHealth()
-        val catSpent = health.categorySpent[cat.displayNameEn] ?: 0.0
-        val catBudget = health.categoryBudgets[cat.displayNameEn] ?: 5000.0
+        // Imported CSVs may use short labels ("Food", "Transport") while in-app records
+        // use canonical labels ("Food & Groceries", "Transport & Fuel"). Match both safely.
+        val catSpent = health.categorySpent.entries
+            .filter { com.example.data.model.ExpenseCategory.matchesLabel(it.key, cat) }
+            .sumOf { it.value }
+        val canonicalBudget = health.categoryBudgets[cat.displayNameEn] ?: 0.0
+        val catBudget = if (canonicalBudget > 0.0) {
+            canonicalBudget
+        } else {
+            health.categoryBudgets.entries.firstOrNull {
+                it.value > 0.0 && com.example.data.model.ExpenseCategory.matchesLabel(it.key, cat)
+            }?.value ?: canonicalBudget
+        }
 
         val msg = if (isTelugu) {
             val teName = toTeluguSpokenCategory(cat.displayNameEn)
-            "ఈ నెల $teName కోసం మీరు ₹${catSpent.toInt()} ఖర్చు చేశారు (బడ్జెట్ పరిమితి: ₹${catBudget.toInt()})."
+            if (catBudget > 0.0) {
+                "ఈ నెల $teName కోసం మీరు ₹${catSpent.toInt()} ఖర్చు చేశారు (బడ్జెట్ పరిమితి: ₹${catBudget.toInt()})."
+            } else {
+                "ఈ నెల $teName కోసం మీరు ₹${catSpent.toInt()} ఖర్చు చేశారు. ఈ వర్గానికి ప్రత్యేక బడ్జెట్ సెట్ చేయలేదు."
+            }
         } else {
-            "This month you spent ₹${catSpent.toInt()} on ${cat.displayNameEn} (Budget: ₹${catBudget.toInt()})."
+            if (catBudget > 0.0) {
+                "This month you spent ₹${catSpent.toInt()} on ${cat.displayNameEn} (budget: ₹${catBudget.toInt()})."
+            } else {
+                "This month you spent ₹${catSpent.toInt()} on ${cat.displayNameEn}. No category budget is set for it."
+            }
         }
 
         val spokenTe = "${toTeluguSpokenCategory(cat.displayNameEn)} కోసం ${catSpent.toInt()} రూపాయలు ఖర్చు చేశారు."
@@ -1383,7 +1526,7 @@ class ExpenseAgentEngine(
 
     private suspend fun handleSetBudget(input: String, isTelugu: Boolean): AgentResult {
         val amount = extractAmount(input)
-        if (amount <= 0.0) {
+        if (!amount.isFinite() || amount <= 0.0) {
             val err = if (isTelugu) "బడ్జెట్ మొత్తం స్పష్టంగా చెప్పండి (ఉదా: 'నెల బడ్జెట్ 30000 గా పెట్టు')."
             else "Please specify a budget amount (e.g. 'Set budget to 30000')."
             return AgentResult(success = false, type = ResultType.ERROR, message = err, spokenSummary = err)
@@ -1488,6 +1631,17 @@ class ExpenseAgentEngine(
     private suspend fun handleLoanRepayment(text: String, isTelugu: Boolean): AgentResult {
         val lower = text.lowercase(Locale.ROOT)
         val amount = extractAmount(lower)
+        if (!amount.isFinite() || amount < 0.0) {
+            val message = if (isTelugu) "చెల్లించిన సరైన మొత్తాన్ని చెప్పండి." else "Please provide a valid repayment amount."
+            return AgentResult(false, ResultType.ERROR, message, spokenSummary = message)
+        }
+        val explicitFullSettlement = listOf(
+            "paid in full", "fully repaid", "settled the loan", "settled loan",
+            "fully settled", "loan settled", "settled in full",
+            "paid everything", "cleared the loan", "loan is settled",
+            "పూర్తిగా చెల్లించాడు", "పూర్తిగా చెల్లించాను", "అప్పు తీర్చాడు",
+            "మొత్తం చెల్లించాడు", "పూర్తి బాకీ చెల్లించాడు", "అప్పు తీరింది"
+        ).any(lower::contains)
 
         var person = ConversationalFuzzyExtractor.extractPerson(text, isTelugu)
         if (person == "Borrower" || person == "Friend" || person == "స్నేహితుడు") {
@@ -1554,9 +1708,35 @@ class ExpenseAgentEngine(
             )
         }
 
-        val remaining = targetLoan.amount - targetLoan.amountPaid
-        val repayAmount = if (amount > 0.0) amount.coerceAtMost(remaining) else remaining
-        val newPaid = (targetLoan.amountPaid + repayAmount).coerceAtMost(targetLoan.amount)
+        val remaining = (targetLoan.amount - targetLoan.amountPaid).coerceAtLeast(0.0)
+        if (amount <= 0.0 && !explicitFullSettlement) {
+            val message = if (isTelugu) {
+                "${targetLoan.personName} వద్ద ఇంకా ₹${remaining.toInt()} బాకీ ఉంది. ఎంత తిరిగి ఇచ్చారో చెప్పండి; మొత్తం చెల్లించినట్లయితే 'పూర్తిగా చెల్లించాడు' అని స్పష్టంగా చెప్పండి."
+            } else {
+                "${targetLoan.personName} still owes ₹${remaining.toInt()}. Tell me the amount repaid, or explicitly say the loan was paid in full."
+            }
+            return AgentResult(
+                success = false,
+                type = ResultType.ERROR,
+                message = message,
+                spokenSummary = message
+            )
+        }
+        if (amount > remaining) {
+            val message = if (isTelugu) {
+                "చెప్పిన ₹${amount.toInt()} మొత్తం మిగిలిన బాకీ ₹${remaining.toInt()} కంటే ఎక్కువ. రికార్డును మార్చలేదు; సరైన మొత్తాన్ని చెప్పండి."
+            } else {
+                "The reported repayment of ₹${amount.toInt()} exceeds the outstanding balance of ₹${remaining.toInt()}. Nothing was changed; please check the amount."
+            }
+            return AgentResult(
+                success = false,
+                type = ResultType.ERROR,
+                message = message,
+                spokenSummary = message
+            )
+        }
+        val repayAmount = if (amount > 0.0) amount else remaining
+        val newPaid = targetLoan.amountPaid + repayAmount
         val isSettledNow = newPaid >= targetLoan.amount
 
         val updated = targetLoan.copy(

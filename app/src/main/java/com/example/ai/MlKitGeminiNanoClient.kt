@@ -3,6 +3,7 @@ package com.example.ai
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
@@ -19,19 +20,19 @@ class MlKitGeminiNanoClient(
 ) : FinancialAiClient, AutoCloseable {
 
     suspend fun probeAvailability(): NanoAvailability = withContext(Dispatchers.IO) {
-        runCatching { model.checkStatus() }
-            .fold(
-                onSuccess = { status ->
-                    when (status) {
-                        FeatureStatus.AVAILABLE -> NanoAvailability.Available
-                        FeatureStatus.DOWNLOADABLE -> NanoAvailability.DownloadRequired
-                        FeatureStatus.DOWNLOADING -> NanoAvailability.Downloading
-                        FeatureStatus.UNAVAILABLE -> NanoAvailability.Unsupported
-                        else -> NanoAvailability.Unknown
-                    }
-                },
-                onFailure = { NanoAvailability.Error(it.message ?: "Unable to check Gemini Nano availability") }
-            )
+        try {
+            when (model.checkStatus()) {
+                FeatureStatus.AVAILABLE -> NanoAvailability.Available
+                FeatureStatus.DOWNLOADABLE -> NanoAvailability.DownloadRequired
+                FeatureStatus.DOWNLOADING -> NanoAvailability.Downloading
+                FeatureStatus.UNAVAILABLE -> NanoAvailability.Unsupported
+                else -> NanoAvailability.Unknown
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            NanoAvailability.Error(error.message ?: "Unable to check Gemini Nano availability")
+        }
     }
 
     /**
@@ -43,6 +44,8 @@ class MlKitGeminiNanoClient(
             NanoAvailability.DownloadRequired -> try {
                 model.download().collect { /* Keep collection active until the download flow completes. */ }
                 probeAvailability()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 NanoAvailability.Error(error.message ?: "Gemini Nano model download failed")
             }
@@ -69,6 +72,8 @@ class MlKitGeminiNanoClient(
                 } else {
                     GeminiCallResult.Success(generatedText)
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 GeminiCallResult.NetworkError(
                     "On-device Gemini Nano inference failed. No cloud fallback was attempted."

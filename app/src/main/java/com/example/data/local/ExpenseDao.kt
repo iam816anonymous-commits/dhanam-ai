@@ -47,6 +47,9 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses ORDER BY timestamp DESC")
     suspend fun getAllExpenses(): List<Expense>
 
+    @Query("SELECT * FROM expenses WHERE id = :id LIMIT 1")
+    suspend fun getExpenseById(id: Long): Expense?
+
     @Query("SELECT * FROM expenses ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLatestExpense(): Expense?
 

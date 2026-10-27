@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.ai.ExpenseAgentEngine
 import com.example.ai.ResultType
 import com.example.data.local.AppDatabase
+import com.example.data.model.Expense
 import com.example.data.preferences.PreferenceManager
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -134,6 +135,44 @@ class ExpenseAgentEngineIntegrationTest {
     }
 
     @Test
+    fun repaymentWithoutAmountDoesNotSilentlySettleTheWholeLoan() = runBlocking {
+        engine.processUserInput("రమేష్ కి 1000 ఇచ్చాను", forceLanguage = "te")
+
+        val result = engine.processUserInput("రమేష్ తిరిగి ఇచ్చాడు", forceLanguage = "te")
+
+        assertTrue(!result.success)
+        val loan = db.loanDao().getLatestPendingLoan()
+        assertNotNull(loan)
+        assertEquals(0.0, loan!!.amountPaid, 0.001)
+        assertEquals(1000.0, loan.remainingAmount, 0.001)
+    }
+
+    @Test
+    fun explicitFullSettlementPhraseCanCloseLoanWithoutNumericAmount() = runBlocking {
+        engine.processUserInput("రమేష్ కి 1000 ఇచ్చాను", forceLanguage = "te")
+
+        val result = engine.processUserInput("రమేష్ అప్పు తీరింది", forceLanguage = "te")
+
+        assertTrue(result.success)
+        val loan = db.loanDao().getAllLoans().single()
+        assertTrue(loan.isSettled)
+        assertEquals(1000.0, loan.amountPaid, 0.001)
+    }
+
+    @Test
+    fun repaymentGreaterThanOutstandingBalanceIsRejected() = runBlocking {
+        engine.processUserInput("రమేష్ కి 1000 ఇచ్చాను", forceLanguage = "te")
+
+        val result = engine.processUserInput("రమేష్ 1500 తిరిగి ఇచ్చాడు", forceLanguage = "te")
+
+        assertTrue(!result.success)
+        val loan = db.loanDao().getLatestPendingLoan()
+        assertNotNull(loan)
+        assertEquals(0.0, loan!!.amountPaid, 0.001)
+        assertEquals(1000.0, loan.remainingAmount, 0.001)
+    }
+
+    @Test
     fun testPartialLoanRepaymentFlow() = runBlocking {
         // Step 1: Lend 1000 to Suresh
         val lendResult = engine.processUserInput("సురేష్ కి 1000 అప్పు ఇచ్చాను", forceLanguage = "te")
@@ -185,6 +224,27 @@ class ExpenseAgentEngineIntegrationTest {
     }
 
     @Test
+    fun correctionDoesNotModifyAnUnrelatedCategoryWhenNoMatchExists() = runBlocking {
+        db.expenseDao().insertExpense(
+            Expense(
+                title = "Groceries",
+                amount = 50.0,
+                category = "Food",
+                timestamp = System.currentTimeMillis()
+            )
+        )
+
+        val result = engine.processUserInput("change previous Transport expense to 100", forceLanguage = "en")
+
+        assertTrue(!result.success)
+        assertTrue(result.message.contains("Nothing was changed"))
+        val latest = db.expenseDao().getLatestExpense()
+        assertNotNull(latest)
+        assertEquals("Groceries", latest!!.title)
+        assertEquals(50.0, latest.amount, 0.001)
+    }
+
+    @Test
     fun testSetMonthlyBudgetCommand() = runBlocking {
         val result = engine.processUserInput("నెల బడ్జెట్ 45000 గా పెట్టు", forceLanguage = "te")
         assertTrue(result.success)
@@ -211,6 +271,32 @@ class ExpenseAgentEngineIntegrationTest {
         val budgetResult = engine.processUserInput("నా బడ్జెట్ ఎంత మిగిలింది?", forceLanguage = "te")
         assertTrue(budgetResult.success)
         assertTrue(budgetResult.message.contains("సురక్షిత రోజువారీ వ్యయం") || budgetResult.message.contains("మిగిలిన"))
+    }
+
+    @Test
+    fun categorySpendingQueryIncludesShortLabelsImportedFromCsv() = runBlocking {
+        db.expenseDao().insertExpense(
+            Expense(
+                title = "Groceries",
+                amount = 42.0,
+                category = "Food",
+                timestamp = System.currentTimeMillis()
+            )
+        )
+
+        val result = engine.processUserInput("How much did I spend on food?", forceLanguage = "en")
+
+        assertTrue(result.success)
+        assertTrue(result.message.contains("42"))
+    }
+
+    @Test
+    fun categorySpendingQueryDoesNotInventAnUnconfiguredBudget() = runBlocking {
+        val result = engine.processUserInput("How much did I spend on food?", forceLanguage = "en")
+
+        assertTrue(result.success)
+        assertTrue(result.message.contains("No category budget is set"))
+        assertTrue(!result.message.contains("5000"))
     }
 
     @Test

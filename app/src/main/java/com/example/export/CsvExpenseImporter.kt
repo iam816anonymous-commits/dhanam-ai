@@ -24,8 +24,12 @@ data class CsvExpenseImportResult(
  * It is deliberately side-effect free: callers validate duplicates and write to Room separately.
  */
 object CsvExpenseImporter {
+    private const val MAX_CSV_CHARACTERS = 5_000_000
+    private const val MAX_CSV_RECORDS = 100_000
+    private const val MAX_CSV_COLUMNS = 100
+
     fun parse(reader: Reader): CsvExpenseImportResult {
-        val raw = reader.readText().removePrefix("\uFEFF")
+        val raw = readBounded(reader).removePrefix("\uFEFF")
         if (raw.isBlank()) return CsvExpenseImportResult(emptyList(), emptyList(), false)
 
         val records = parseCsvRecords(raw)
@@ -84,7 +88,8 @@ object CsvExpenseImporter {
             }
 
             val category = row.getOrNull(categoryIndex).orEmpty().trim().ifBlank { "Other" }
-            val paymentMode = row.getOrNull(paymentIndex).orEmpty().trim().ifBlank { "UPI" }
+            // Missing payment metadata must remain unknown; do not invent UPI usage in reports.
+            val paymentMode = row.getOrNull(paymentIndex).orEmpty().trim().ifBlank { "Unknown" }
             val notes = row.getOrNull(notesIndex).orEmpty().trim()
             expenses += Expense(
                 title = title,
@@ -143,12 +148,48 @@ object CsvExpenseImporter {
         return parsed?.takeIf { position.index == value.length }
     }
 
+    private fun readBounded(reader: Reader): String {
+        val output = StringBuilder()
+        val buffer = CharArray(8_192)
+        while (true) {
+            val count = reader.read(buffer)
+            if (count < 0) break
+            require(output.length + count <= MAX_CSV_CHARACTERS) {
+                "CSV exceeds the maximum supported size of 5 million characters."
+            }
+            output.append(buffer, 0, count)
+        }
+        return output.toString()
+    }
+
     private fun parseCsvRecords(text: String): List<List<String>> {
         val records = mutableListOf<List<String>>()
         var row = mutableListOf<String>()
         val field = StringBuilder()
         var inQuotes = false
+        var afterQuote = false
         var index = 0
+
+        fun finishField() {
+            require(row.size < MAX_CSV_COLUMNS) {
+                "CSV contains more than $MAX_CSV_COLUMNS columns in one record."
+            }
+            row += field.toString()
+            field.setLength(0)
+            afterQuote = false
+        }
+
+        fun finishRecord() {
+            finishField()
+            if (row.any { it.isNotEmpty() }) {
+                require(records.size < MAX_CSV_RECORDS) {
+                    "CSV contains more than $MAX_CSV_RECORDS records."
+                }
+                records += row
+            }
+            row = mutableListOf()
+        }
+
         while (index < text.length) {
             val char = text[index]
             when {
@@ -156,25 +197,34 @@ object CsvExpenseImporter {
                     field.append('"')
                     index++
                 }
-                char == '"' -> inQuotes = !inQuotes
-                char == ',' && !inQuotes -> {
-                    row += field.toString()
-                    field.setLength(0)
+                char == '"' && inQuotes -> {
+                    inQuotes = false
+                    afterQuote = true
                 }
-                (char == '\n' || char == '\r') && !inQuotes -> {
+                char == '"' && !inQuotes -> {
+                    require(field.isEmpty() && !afterQuote) {
+                        "CSV contains a quote inside an unquoted field."
+                    }
+                    inQuotes = true
+                }
+                afterQuote && char == ',' -> finishField()
+                afterQuote && (char == '\n' || char == '\r') -> {
+                    finishRecord()
                     if (char == '\r' && index + 1 < text.length && text[index + 1] == '\n') index++
-                    row += field.toString()
-                    field.setLength(0)
-                    if (row.any { it.isNotEmpty() }) records += row
-                    row = mutableListOf()
+                }
+                afterQuote && char.isWhitespace() -> Unit
+                afterQuote -> throw IllegalArgumentException("CSV contains unexpected text after a closing quote.")
+                char == ',' && !inQuotes -> finishField()
+                (char == '\n' || char == '\r') && !inQuotes -> {
+                    finishRecord()
+                    if (char == '\r' && index + 1 < text.length && text[index + 1] == '\n') index++
                 }
                 else -> field.append(char)
             }
             index++
         }
         require(!inQuotes) { "CSV contains an unterminated quoted field." }
-        row += field.toString()
-        if (row.any { it.isNotEmpty() }) records += row
+        if (row.isNotEmpty() || field.isNotEmpty() || afterQuote) finishRecord()
         return records
     }
 }

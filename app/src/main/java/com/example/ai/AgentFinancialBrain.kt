@@ -43,7 +43,8 @@ object AgentFinancialBrain {
         val budget: Double,
         val percentUsed: Int,
         val isOverspent: Boolean,
-        val isNearLimit: Boolean
+        val isNearLimit: Boolean,
+        val hasBudget: Boolean = budget > 0.0
     )
 
     fun calculateLocalFinancialHealth(
@@ -63,27 +64,27 @@ object AgentFinancialBrain {
         val dailySafeToSpend = if (daysRemaining > 0) remainingBudget / daysRemaining else 0.0
         val projectedMonthEndSpend = dailyBurnRate * daysInMonth
         val adherencePct = if (monthlyBudget > 0) ((totalSpent / monthlyBudget) * 100).toInt() else 0
-        val isAtRisk = projectedMonthEndSpend > monthlyBudget || adherencePct >= 80
+        val isAtRisk = monthlyBudget > 0.0 && (projectedMonthEndSpend > monthlyBudget || adherencePct >= 80)
 
         val categorySummaries = ExpenseCategory.entries
             .filter { it != ExpenseCategory.LENDING }
             .map { cat ->
-                val spent = categoryTotals.firstOrNull { 
-                    it.category.equals(cat.displayNameEn, ignoreCase = true) ||
-                    it.category.equals(cat.name, ignoreCase = true)
-                }?.total ?: 0.0
-                val budget = categoryBudgets.firstOrNull { 
-                    it.category.equals(cat.displayNameEn, ignoreCase = true) ||
-                    it.category.equals(cat.name, ignoreCase = true)
-                }?.monthlyLimit ?: 5000.0
-                val pct = if (budget > 0) ((spent / budget) * 100).toInt() else 0
+                val spent = categoryTotals
+                    .filter { ExpenseCategory.matchesLabel(it.category, cat) }
+                    .sumOf { it.total }
+                val configuredBudget = categoryBudgets.firstOrNull {
+                    ExpenseCategory.matchesLabel(it.category, cat)
+                }?.monthlyLimit?.takeIf { it.isFinite() && it > 0.0 }
+                val budget = configuredBudget ?: 0.0
+                val pct = configuredBudget?.let { ((spent / it) * 100).toInt() } ?: 0
                 CategoryHealth(
                     category = cat.displayNameEn,
                     spent = spent,
                     budget = budget,
                     percentUsed = pct,
-                    isOverspent = spent > budget,
-                    isNearLimit = pct in 80..100
+                    isOverspent = configuredBudget != null && spent > budget,
+                    isNearLimit = configuredBudget != null && pct in 80..100,
+                    hasBudget = configuredBudget != null
                 )
             }
 
@@ -160,13 +161,15 @@ object AgentFinancialBrain {
         - Money Lent / Debt (అప్పు, బాకీ)
         - Other Miscellaneous
         
+        If the user did not specify a payment method, use "Unknown"; never assume UPI.
+
         OUTPUT FORMAT (Strict JSON only):
         {
           "type": "EXPENSE" | "LOAN_GIVEN" | "OUT_OF_SCOPE" | "QUERY",
           "title": "Clean title",
           "amount": 0.0,
           "category": "category name",
-          "paymentMode": "UPI" | "Cash" | "Card" | "NetBanking",
+          "paymentMode": "UPI" | "Cash" | "Card" | "NetBanking" | "Unknown",
           "personName": "Person name if loan, else empty",
           "dueDateDays": 7 or null,
           "notes": "context",

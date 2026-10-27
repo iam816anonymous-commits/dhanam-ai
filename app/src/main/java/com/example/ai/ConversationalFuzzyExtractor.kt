@@ -45,7 +45,7 @@ object ConversationalFuzzyExtractor {
         val category: ExpenseCategory,
         val isLoan: Boolean = false,
         val personName: String = "",
-        val paymentMode: String = "UPI",
+        val paymentMode: String = "Unknown",
         val dueDateDays: Int = 7
     )
 
@@ -109,7 +109,9 @@ object ConversationalFuzzyExtractor {
             "saala kotte", "udhari kotte"
         )
         val loanRepayPatterns = listOf(
-            "returned loan", "repaid", "received back", "paid back", "returned", "gave back", "settled loan",
+            "returned loan", "repaid", "received back", "paid back", "returned", "gave back",
+            "settled loan", "settled in full", "fully settled", "fully repaid", "paid in full",
+            "cleared the loan", "loan settled",
             "అప్పు తిరిగి ఇచ్చారు", "బాకీ చెల్లించారు", "తిరిగి వచ్చింది", "తిరిగి ఇచ్చాడు", "తిరిగి ఇచ్చింది",
             "ఇచ్చేశాడు", "చెల్లించాడు", "వాపస్ ఇచ్చాడు", "బాకీ తీరింది", "అప్పు తీరింది",
             "udhar wapas mila", "karz chukaya", "wapas diya"
@@ -600,8 +602,12 @@ object ConversationalFuzzyExtractor {
         return when {
             lower.contains("cash") || lower.contains("నగదు") || lower.contains("roked") -> "Cash"
             lower.contains("card") || lower.contains("credit") || lower.contains("debit") || lower.contains("కార్డు") -> "Card"
-            lower.contains("netbanking") || lower.contains("net banking") || lower.contains("bank transfer") -> "NetBanking"
-            else -> "UPI" // Default Indian fintech standard
+            lower.contains("netbanking") || lower.contains("net banking") ||
+                lower.contains("bank transfer") || lower.contains("నెట్ బ్యాంకింగ్") ||
+                lower.contains("బ్యాంక్ ట్రాన్స్‌ఫర్") -> "NetBanking"
+            lower.contains("upi") || lower.contains("gpay") || lower.contains("google pay") ||
+                lower.contains("phonepe") || lower.contains("paytm") -> "UPI"
+            else -> "Unknown"
         }
     }
 

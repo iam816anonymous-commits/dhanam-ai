@@ -2,6 +2,7 @@ package com.example.data.model
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import java.util.Locale
 
 @Entity(tableName = "expenses")
 data class Expense(
@@ -12,7 +13,7 @@ data class Expense(
     val category: String, // e.g. Food, Dining, Transport, Shopping, Bills, Entertainment, Health, Other
     val timestamp: Long = System.currentTimeMillis(),
     val notes: String = "",
-    val paymentMode: String = "UPI", // UPI, Cash, Card, NetBanking
+    val paymentMode: String = "Unknown", // UPI, Cash, Card, NetBanking, Unknown
     val detectedLanguage: String = "en" // "te" (Telugu) or "en" (English)
 )
 
@@ -29,12 +30,33 @@ enum class ExpenseCategory(val displayNameEn: String, val displayNameTe: String,
     OTHER("Other Miscellaneous", "ఇతర ఖర్చులు", "category");
 
     companion object {
-        fun fromString(name: String): ExpenseCategory {
-            return entries.firstOrNull { 
-                it.name.equals(name, ignoreCase = true) || 
-                it.displayNameEn.contains(name, ignoreCase = true) ||
-                it.displayNameTe.contains(name, ignoreCase = true)
-            } ?: OTHER
+        /**
+         * Matches canonical labels and known CSV/import aliases without treating arbitrary custom
+         * categories as OTHER. This keeps imported short labels aligned with in-app categories.
+         */
+        fun matchesLabel(label: String, category: ExpenseCategory): Boolean {
+            val normalized = label.trim().lowercase(Locale.ROOT)
+            if (normalized.isBlank()) return false
+            if (normalized == category.name.lowercase(Locale.ROOT) ||
+                normalized == category.displayNameEn.lowercase(Locale.ROOT) ||
+                normalized == category.displayNameTe.lowercase(Locale.ROOT)
+            ) return true
+
+            return when (category) {
+                ExpenseCategory.FOOD -> normalized in setOf("food", "groceries", "grocery")
+                ExpenseCategory.DINING -> normalized in setOf("dining", "snacks", "restaurant", "restaurants")
+                ExpenseCategory.TRANSPORT -> normalized in setOf("transport", "fuel", "petrol", "travel")
+                ExpenseCategory.SHOPPING -> normalized in setOf("shopping", "clothes", "clothing")
+                ExpenseCategory.BILLS -> normalized in setOf("bills", "bill", "utilities", "utility")
+                ExpenseCategory.ENTERTAINMENT -> normalized in setOf("entertainment", "movies", "movie")
+                ExpenseCategory.HEALTH -> normalized in setOf("health", "medical", "medicine")
+                ExpenseCategory.EDUCATION -> normalized in setOf("education", "fees", "fee")
+                ExpenseCategory.LENDING -> normalized in setOf("lending", "money lent", "debt")
+                ExpenseCategory.OTHER -> normalized in setOf("other", "uncategorized", "misc", "miscellaneous")
+            }
         }
+
+        fun fromString(name: String): ExpenseCategory =
+            entries.firstOrNull { matchesLabel(name, it) } ?: OTHER
     }
 }

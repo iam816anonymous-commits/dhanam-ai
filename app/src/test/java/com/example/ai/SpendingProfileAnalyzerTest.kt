@@ -40,9 +40,9 @@ class SpendingProfileAnalyzerTest {
         assertEquals(3, profile.transactionCount)
         assertEquals(550.0, profile.totalSpent, 0.001)
         assertEquals(45.833333, profile.averageMonthlySpend, 0.001)
-        assertEquals("Transport", profile.categorySpending.first().category)
+        assertEquals("Transport & Fuel", profile.categorySpending.first().category)
         assertEquals(300.0, profile.categorySpending.first().total, 0.001)
-        assertEquals("Food", profile.categorySpending[1].category)
+        assertEquals("Food & Groceries", profile.categorySpending[1].category)
         assertEquals(250.0, profile.categorySpending[1].total, 0.001)
         assertEquals(250.0, profile.paymentModeTotals["UPI"]!!, 0.001)
         assertEquals(300.0, profile.paymentModeTotals["Cash"]!!, 0.001)
@@ -65,6 +65,27 @@ class SpendingProfileAnalyzerTest {
 
         assertEquals(1, profile.transactionCount)
         assertEquals(10.0, profile.totalSpent, 0.001)
+    }
+
+    @Test
+    fun ignoresZeroValueRowsAndMergesCaseVariantCategoriesAndPaymentModes() {
+        val profile = SpendingProfileAnalyzer.analyze(
+            listOf(
+                Expense(id = 1, title = "Food A", amount = 10.0, category = "Food", timestamp = 150L, paymentMode = "UPI"),
+                Expense(id = 2, title = "Food B", amount = 20.0, category = "food", timestamp = 160L, paymentMode = "upi"),
+                Expense(id = 3, title = "Zero", amount = 0.0, category = "Food", timestamp = 170L, paymentMode = "UPI")
+            ),
+            100L,
+            200L
+        )
+
+        assertEquals(2, profile.transactionCount)
+        assertEquals(30.0, profile.totalSpent, 0.001)
+        assertEquals(1, profile.categorySpending.size)
+        assertEquals("Food & Groceries", profile.categorySpending.single().category)
+        assertEquals(2, profile.categorySpending.single().transactionCount)
+        assertEquals(1, profile.paymentModeTotals.size)
+        assertEquals(30.0, profile.paymentModeTotals["UPI"]!!, 0.001)
     }
 
     @Test

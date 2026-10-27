@@ -50,6 +50,28 @@ class CsvExpenseImporterTest {
     }
 
     @Test
+    fun missingPaymentMetadataIsReportedAsUnknownRatherThanInvented() {
+        val result = CsvExpenseImporter.parse(
+            StringReader("Date,Title,Category,Amount\n27/10/2026,Groceries,Food,25")
+        )
+
+        assertEquals(1, result.expenses.size)
+        assertEquals("Unknown", result.expenses.single().paymentMode)
+    }
+
+    @Test
+    fun rejectsOversizedCsvBeforeParsingItsRecords() {
+        val oversized = "x".repeat(5_000_001)
+        var failed = false
+        try {
+            CsvExpenseImporter.parse(StringReader(oversized))
+        } catch (error: IllegalArgumentException) {
+            failed = error.message?.contains("maximum supported size") == true
+        }
+        assertTrue(failed)
+    }
+
+    @Test
     fun fingerprintIsStableForSameImportedTransaction() {
         val csv = "Date,Time,Title,Category,Amount,Payment Mode,Notes\n27/10/2026,09:30 AM,Tea,Food,20,UPI,shop"
         val expense = CsvExpenseImporter.parse(StringReader(csv)).expenses.single()
@@ -70,5 +92,13 @@ class CsvExpenseImporterTest {
             failed = true
         }
         assertTrue(failed)
+
+        failed = false
+        try {
+            CsvExpenseImporter.parse(StringReader("Date,Title,Category,Amount\n27/10/2026,Gro\"ceries,Food,10"))
+        } catch (_: IllegalArgumentException) {
+            failed = true
+        }
+        assertTrue("A quote inside an unquoted field must be rejected", failed)
     }
 }
