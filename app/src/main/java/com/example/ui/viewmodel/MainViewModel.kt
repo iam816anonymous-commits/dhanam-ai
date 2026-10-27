@@ -1077,7 +1077,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val parsed = withContext(Dispatchers.IO) {
                     val input = context.contentResolver.openInputStream(uri)
                         ?: throw IllegalArgumentException("Could not open the selected CSV file.")
-                    input.bufferedReader(Charsets.UTF_8).use(CsvExpenseImporter::parse)
+                    input.bufferedReader(Charsets.UTF_8).use { reader -> CsvExpenseImporter.parse(reader) }
                 }
                 if (!parsed.headerFound) {
                     onResult(false, parsed.issues.firstOrNull()?.reason ?: "This file does not contain a supported expense CSV table.")
@@ -1112,7 +1112,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onResult(inserted > 0 || duplicates > 0, message)
             } catch (error: Exception) {
                 com.example.util.AppLogger.e("MainViewModel", "Expense CSV import failed", error)
-                onResult(false, "Import failed. No partial import was kept. Check that the file is a valid Dhanam AI or transaction CSV.")
+                onResult(false, "Import failed. Check that the file is a valid Dhanam AI or transaction CSV and try again.")
             }
         }
     }
