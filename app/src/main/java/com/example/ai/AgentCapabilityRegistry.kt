@@ -75,6 +75,27 @@ object AgentCapabilityRegistry {
         all.filter { it.implementation.isBlank() }.forEach {
             errors += "Capability ${it.id} has no implementation mapping."
         }
+        all.filterNot(::hasCallableImplementation).forEach {
+            errors += "Capability ${it.id} points to missing callable entry point '${it.implementation}'."
+        }
         return errors
+    }
+
+    /**
+     * Validate mappings against actual compiled method names, not just non-empty documentation strings.
+     * This catches registry entries that silently drift away from the ViewModel/analyzer API.
+     */
+    private fun hasCallableImplementation(capability: AgentCapability): Boolean {
+        val owner = capability.implementation.substringBeforeLast('.', missingDelimiterValue = "")
+        val method = capability.implementation.substringAfterLast('.', missingDelimiterValue = "")
+        if (owner.isBlank() || method.isBlank()) return false
+
+        val ownerClass = when (owner) {
+            "MainViewModel" -> com.example.ui.viewmodel.MainViewModel::class.java
+            "SpendingProfileAnalyzer" -> SpendingProfileAnalyzer::class.java
+            else -> return false
+        }
+        return ownerClass.methods.any { it.name == method } ||
+            ownerClass.declaredMethods.any { it.name == method }
     }
 }
