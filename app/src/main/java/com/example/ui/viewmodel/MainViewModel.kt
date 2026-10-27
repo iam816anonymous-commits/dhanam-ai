@@ -653,6 +653,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Living Jarvis Noting feedback with visible on-screen touch animation
             val hasItems = result.recordedExpenses.isNotEmpty() || result.recordedExpense != null ||
                     result.recordedLoans.isNotEmpty() || result.recordedLoan != null
+            val confirmedExpenseDeletion = pendingDeletion != null &&
+                confirmationText in setOf("confirm delete", "confirm", "yes", "yes delete", "delete it", "అవును", "అవును తొలగించు") &&
+                result.success && result.type == ResultType.ACTION_COMPLETED
+            if (hasItems || confirmedExpenseDeletion) {
+                // The agent writes directly through Room; refresh derived metrics and tips after every mutation.
+                refreshMonthMetrics()
+                refreshSavingsTips()
+            }
             if (hasItems) {
                 _isNoting.value = true
                 val count = result.recordedExpenses.size.coerceAtLeast(1)
