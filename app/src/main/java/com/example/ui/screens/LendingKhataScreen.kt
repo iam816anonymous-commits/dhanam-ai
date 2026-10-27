@@ -678,7 +678,10 @@ fun AddLoanDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = personName,
-                    onValueChange = { personName = it },
+                    onValueChange = {
+                        personName = it
+                        editValidationError = null
+                    },
                     label = { Text(if (isTelugu) "వ్యక్తి పేరు (Person Name)" else "Person Name") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -895,7 +898,10 @@ fun EditLoanDialog(
 
                 OutlinedTextField(
                     value = amountStr,
-                    onValueChange = { amountStr = it },
+                    onValueChange = {
+                        amountStr = it
+                        editValidationError = null
+                    },
                     label = { Text(if (isTelugu) "ఇచ్చిన మొత్తం (Total Amount ₹)" else "Total Amount (₹)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
@@ -913,7 +919,10 @@ fun EditLoanDialog(
 
                 OutlinedTextField(
                     value = additionalDaysStr,
-                    onValueChange = { additionalDaysStr = it },
+                    onValueChange = {
+                        additionalDaysStr = it
+                        editValidationError = null
+                    },
                     label = { Text(if (isTelugu) "గడువు పొడిగింపు (రోజులు - Extend Days)" else "Extend Due Date (Days)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
@@ -927,6 +936,9 @@ fun EditLoanDialog(
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 2
                 )
+                editValidationError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
