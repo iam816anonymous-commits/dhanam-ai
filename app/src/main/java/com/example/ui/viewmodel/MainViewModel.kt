@@ -505,12 +505,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setOverallMonthlyBudget(amount: Double) {
+        if (!amount.isFinite() || amount <= 0.0) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid overall budget")
+            return
+        }
         preferenceManager.setOverallBudget(amount)
         reallocateBudgetsAdaptively(amount)
         refreshMonthMetrics()
     }
 
     fun updateCategoryBudget(category: String, limit: Double) {
+        if (category.isBlank() || !limit.isFinite() || limit <= 0.0) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid category budget")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             budgetDao.insertOrUpdateBudget(CategoryBudget(category, limit))
             refreshMonthMetrics()
