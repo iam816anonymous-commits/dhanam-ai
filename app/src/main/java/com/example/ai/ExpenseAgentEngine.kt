@@ -359,6 +359,15 @@ class ExpenseAgentEngine(
             val personName = json.optString("personName").trim().take(80)
             if (type == "LOAN_GIVEN") {
                 val lower = input.lowercase(Locale.ROOT)
+                val tokenPattern = Regex("[^\\p{L}\\p{N}]+")
+                val commandTokens = lower.split(tokenPattern).filter { it.isNotBlank() }
+                val personTokens = personName.lowercase(Locale.ROOT).split(tokenPattern).filter { it.isNotBlank() }
+                val personAppearsInCommand = personTokens.isNotEmpty() &&
+                    commandTokens.windowed(personTokens.size).any { it == personTokens }
+                val genericPersonNames = setOf(
+                    "friend", "borrower", "someone", "somebody", "person", "him", "her",
+                    "స్నేహితుడు", "వ్యక్తి", "ఎవరైనా"
+                )
                 val inboundBorrowingLanguage = listOf(
                     "borrowed from", "borrow from", "i borrowed", "took a loan",
                     "take a loan", "got a loan", "అప్పు తీసుకున్న", "తీసుకున్నాను", "తీసుకున్నా"
@@ -371,7 +380,9 @@ class ExpenseAgentEngine(
                     "lent", "loaned", "gave", "loan given",
                     "అప్పు ఇచ్చాను", "అప్పు ఇచ్చా", "ఇచ్చాను", "ఇచ్చా", "ఇచ్చాడు"
                 ).any(lower::contains)
-                if (!explicitLendingLanguage || inboundBorrowingLanguage || repaymentLanguage || personName.isBlank()) return null
+                if (!explicitLendingLanguage || inboundBorrowingLanguage || repaymentLanguage ||
+                    !personAppearsInCommand || personName.lowercase(Locale.ROOT) in genericPersonNames
+                ) return null
             }
 
             val allowedCategories = setOf(
@@ -394,7 +405,9 @@ class ExpenseAgentEngine(
                 personName = personName,
                 dueDateDays = json.optInt("dueDateDays", 7).coerceIn(1, 365),
                 paymentMode = paymentMode,
-                notes = json.optString("notes").take(300)
+                notes = json.optString("notes").trim().take(300)
+                    .takeIf { it.isNotBlank() && input.contains(it, ignoreCase = true) }
+                    .orEmpty()
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
