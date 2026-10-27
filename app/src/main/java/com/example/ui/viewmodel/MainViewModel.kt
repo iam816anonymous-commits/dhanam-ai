@@ -835,8 +835,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun checkAndNotifyOverspending(category: String) {
         try {
             val catTotal = _categoryTotals.value.firstOrNull { it.category.equals(category, ignoreCase = true) }?.total ?: 0.0
-            val catBudget = categoryBudgets.value.firstOrNull { it.category.equals(category, ignoreCase = true) }?.monthlyLimit ?: 5000.0
-            if (catTotal > catBudget) {
+            // Do not send a warning based on an invented default limit; the user must have a saved budget.
+            val catBudget = categoryBudgets.value.firstOrNull { it.category.equals(category, ignoreCase = true) }?.monthlyLimit
+                ?: return
+            if (catBudget > 0.0 && catTotal > catBudget) {
                 val isTe = preferenceManager.getPreferredLanguage() == "te"
                 com.example.notifications.NotificationReminderManager.showOverspendingAlertNotification(
                     getApplication(),
