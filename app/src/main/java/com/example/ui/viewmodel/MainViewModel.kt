@@ -61,6 +61,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val voiceAgentManager = VoiceAgentManager(application)
 
     private val agentEngine = ExpenseAgentEngine(expenseDao, loanDao, budgetDao, preferenceManager, app.merchantCache, app.database)
+    private var pendingAgentDeletion: Expense? = null
 
     // User Preferences
     val themeMode: StateFlow<String> = preferenceManager.themeMode
@@ -534,8 +535,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isThinking.value = false
             _isProcessingAgent.value = true
 
+            val pendingDeletion = pendingAgentDeletion
+            val confirmationText = processedInput.trim().lowercase(Locale.ROOT)
             val result = try {
-                agentEngine.processUserInput(processedInput, preferenceManager.getPreferredLanguage())
+                when {
+                    pendingDeletion != null && confirmationText in setOf(
+                        "cancel", "cancel delete", "no", "keep it", "రద్దు", "వద్దు"
+                    ) -> {
+                        pendingAgentDeletion = null
+                        AgentResult(
+                            success = true,
+                            type = ResultType.ERROR,
+                            message = if (preferenceManager.getPreferredLanguage() == "te")
+                                "సరే, ఖర్చు అలాగే ఉంచాను." else "Cancelled. The expense was kept."
+                        )
+                    }
+                    pendingDeletion != null && confirmationText in setOf(
+                        "confirm delete", "confirm", "yes", "yes delete", "delete it", "అవును", "అవును తొలగించు"
+                    ) -> {
+                        expenseDao.deleteExpense(pendingDeletion)
+                        pendingAgentDeletion = null
+                        AgentResult(
+                            success = true,
+                            type = ResultType.EXPENSE_RECORDED,
+                            message = if (preferenceManager.getPreferredLanguage() == "te")
+                                "'${pendingDeletion.title}' ఖర్చును తొలగించాను."
+                            else "Deleted expense '${pendingDeletion.title}' (₹${pendingDeletion.amount.toInt()})."
+                        )
+                    }
+                    pendingDeletion != null -> AgentResult(
+                        success = false,
+                        type = ResultType.CONFIRMATION_REQUIRED,
+                        message = if (preferenceManager.getPreferredLanguage() == "te")
+                            "తొలగింపును నిర్ధారించడానికి CONFIRM DELETE అని లేదా ఆపడానికి CANCEL అని చెప్పండి."
+                        else "A deletion is pending. Reply CONFIRM DELETE to proceed or CANCEL to keep the expense."
+                    )
+                    else -> agentEngine.processUserInput(processedInput, preferenceManager.getPreferredLanguage())
+                }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -554,6 +590,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 )
             }
+            if (result.confirmationRequired) {
+                pendingAgentDeletion = result.pendingDeletionExpense
+            }
+
             val agentResponse = AgentChatMessage(
                 isUser = false,
                 text = result.message,
