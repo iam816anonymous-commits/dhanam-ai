@@ -45,6 +45,7 @@ enum class ResultType {
     INSIGHTS,
     OUT_OF_SCOPE,
     CONFIRMATION_REQUIRED,
+    ACTION_COMPLETED,
     ERROR
 }
 
