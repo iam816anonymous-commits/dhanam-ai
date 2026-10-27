@@ -986,6 +986,7 @@ class ExpenseAgentEngine(
         calendar.set(Calendar.HOUR_OF_DAY, 0)
         calendar.set(Calendar.MINUTE, 0)
         calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
         val startOfMonth = calendar.timeInMillis
         val now = System.currentTimeMillis()
 
@@ -1036,6 +1037,10 @@ class ExpenseAgentEngine(
         val daysRemaining = (daysInMonth - dayOfMonth + 1).coerceAtLeast(1)
 
         calendar.set(Calendar.DAY_OF_MONTH, 1)
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
         val startOfMonth = calendar.timeInMillis
         val now = System.currentTimeMillis()
 
@@ -1341,13 +1346,21 @@ class ExpenseAgentEngine(
         val cat = determineCategory(input.lowercase(Locale.ROOT))
         val health = calculateCurrentMonthHealth()
         val catSpent = health.categorySpent[cat.displayNameEn] ?: 0.0
-        val catBudget = health.categoryBudgets[cat.displayNameEn] ?: 5000.0
+        val catBudget = health.categoryBudgets[cat.displayNameEn] ?: 0.0
 
         val msg = if (isTelugu) {
             val teName = toTeluguSpokenCategory(cat.displayNameEn)
-            "ఈ నెల $teName కోసం మీరు ₹${catSpent.toInt()} ఖర్చు చేశారు (బడ్జెట్ పరిమితి: ₹${catBudget.toInt()})."
+            if (catBudget > 0.0) {
+                "ఈ నెల $teName కోసం మీరు ₹${catSpent.toInt()} ఖర్చు చేశారు (బడ్జెట్ పరిమితి: ₹${catBudget.toInt()})."
+            } else {
+                "ఈ నెల $teName కోసం మీరు ₹${catSpent.toInt()} ఖర్చు చేశారు. ఈ వర్గానికి ప్రత్యేక బడ్జెట్ సెట్ చేయలేదు."
+            }
         } else {
-            "This month you spent ₹${catSpent.toInt()} on ${cat.displayNameEn} (Budget: ₹${catBudget.toInt()})."
+            if (catBudget > 0.0) {
+                "This month you spent ₹${catSpent.toInt()} on ${cat.displayNameEn} (budget: ₹${catBudget.toInt()})."
+            } else {
+                "This month you spent ₹${catSpent.toInt()} on ${cat.displayNameEn}. No category budget is set for it."
+            }
         }
 
         val spokenTe = "${toTeluguSpokenCategory(cat.displayNameEn)} కోసం ${catSpent.toInt()} రూపాయలు ఖర్చు చేశారు."
