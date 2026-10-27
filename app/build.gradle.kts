@@ -132,6 +132,8 @@ dependencies {
   implementation(libs.androidx.work.runtime.ktx)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
+  // Optional on-device Gemini Nano provider; it does not use Firebase or an API key.
+  implementation(libs.mlkit.genai.prompt)
   // implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.kotlinx.coroutines.android)
