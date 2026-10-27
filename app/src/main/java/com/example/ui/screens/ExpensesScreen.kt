@@ -606,7 +606,11 @@ fun ExpensesScreen(
     }
 
     categoryToEditBudget?.let { catName ->
-        val currentLimit = categoryBudgets.firstOrNull { it.category.equals(catName, ignoreCase = true) }?.monthlyLimit ?: 0.0
+        val selectedCategory = ExpenseCategory.entries.firstOrNull { matchesCategoryAlias(catName, it) }
+        val currentLimit = categoryBudgets.firstOrNull { budget ->
+            budget.category.equals(catName, ignoreCase = true) ||
+                (selectedCategory != null && matchesCategoryAlias(budget.category, selectedCategory))
+        }?.monthlyLimit ?: 0.0
         SetCategoryBudgetDialog(
             category = catName,
             currentLimit = currentLimit,
