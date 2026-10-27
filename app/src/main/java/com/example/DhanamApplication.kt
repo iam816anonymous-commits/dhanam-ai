@@ -9,7 +9,6 @@ import com.example.data.preferences.PreferenceManager
 import com.example.util.AppLogger
 import com.example.ai.GeminiService
 import com.google.firebase.appcheck.FirebaseAppCheck
-import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 
 class DhanamApplication : Application() {
@@ -36,7 +35,9 @@ class DhanamApplication : Application() {
         try {
             val appCheck = FirebaseAppCheck.getInstance()
             if (BuildConfig.DEBUG) {
-                appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
+                val debugFactoryClass = Class.forName("com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory")
+                val debugFactory = debugFactoryClass.getMethod("getInstance").invoke(null) as com.google.firebase.appcheck.AppCheckProviderFactory
+                appCheck.installAppCheckProviderFactory(debugFactory)
             } else {
                 appCheck.installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
             }
