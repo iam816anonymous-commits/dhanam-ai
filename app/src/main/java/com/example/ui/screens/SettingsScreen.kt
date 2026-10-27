@@ -121,6 +121,17 @@ fun SettingsScreen(
     var nanoProbeInProgress by remember { mutableStateOf(false) }
     var nanoAvailabilityMessage by remember { mutableStateOf<String?>(null) }
     val settingsScope = rememberCoroutineScope()
+    var csvImportMessage by remember { mutableStateOf<String?>(null) }
+    val csvImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.importExpensesFromCsv(context, uri) { _, message ->
+                csvImportMessage = message
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     // Dynamic Permission States
     var hasMicPermission by remember {
@@ -153,6 +164,45 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface
             )
+        }
+
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                modifier = Modifier.fillMaxWidth().testTag("csv_import_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = if (isTelugu) "పాత ఖర్చుల CSV దిగుమతి" else "Import expense history (CSV)",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = if (isTelugu)
+                            "Dhanam AI CSV లేదా Date, Title, Category, Amount ఉన్న CSV ఎంచుకోండి. చెల్లని వరుసలు తిరస్కరించబడతాయి; ఇప్పటికే ఉన్న లావాదేవీలు మళ్లీ దిగుమతి కావు."
+                        else
+                            "Choose a Dhanam AI export or a transaction CSV with Date, Title, Category and Amount. Invalid rows are skipped and matching existing transactions are not imported again.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    csvImportMessage?.let { message ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(message, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = {
+                            csvImportLauncher.launch(arrayOf("text/*", "application/csv", "application/vnd.ms-excel"))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (isTelugu) "CSV ఫైల్ ఎంచుకోండి" else "Choose CSV file")
+                    }
+                }
+            }
         }
 
         // Optional Gemini Nano runtime probe. It never starts a download.
