@@ -1,5 +1,7 @@
 package com.example.ai
 
+import androidx.room.withTransaction
+import com.example.data.local.AppDatabase
 import com.example.data.local.BudgetDao
 import com.example.data.local.ExpenseDao
 import com.example.data.local.LoanDao
@@ -59,7 +61,8 @@ class ExpenseAgentEngine(
     private val loanDao: LoanDao,
     private val budgetDao: BudgetDao,
     private val preferenceManager: PreferenceManager,
-    private val merchantCache: AdaptiveMerchantCache? = null
+    private val merchantCache: AdaptiveMerchantCache? = null,
+    private val appDatabase: AppDatabase? = null
 ) {
 
     suspend fun processUserInput(input: String, forceLanguage: String? = null): AgentResult {
@@ -743,6 +746,16 @@ class ExpenseAgentEngine(
      * Executes batch multi-item input (e.g. "Vegetables 200, Petrol 500, Lunch 350").
      */
     private suspend fun executeBatchItems(items: List<ParsedItem>, isTelugu: Boolean): AgentResult {
+        val database = appDatabase
+        return if (database != null) {
+            // A multi-item command is one logical operation: either every record is saved or none is.
+            database.withTransaction { executeBatchItemsInternal(items, isTelugu) }
+        } else {
+            executeBatchItemsInternal(items, isTelugu)
+        }
+    }
+
+    private suspend fun executeBatchItemsInternal(items: List<ParsedItem>, isTelugu: Boolean): AgentResult {
         val savedExpenses = mutableListOf<Expense>()
         val savedLoans = mutableListOf<Loan>()
         var totalAmount = 0.0
