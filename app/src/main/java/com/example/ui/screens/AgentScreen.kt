@@ -833,7 +833,7 @@ fun ChatBubbleItem(
                 )
             }
 
-            if (result.type != ResultType.OUT_OF_SCOPE && result.type != ResultType.ERROR && result.type != ResultType.CONFIRMATION_REQUIRED) {
+            if (result.type != ResultType.OUT_OF_SCOPE && result.type != ResultType.ERROR && result.type != ResultType.CONFIRMATION_REQUIRED && result.type != ResultType.ACTION_COMPLETED) {
                 Card(
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(
