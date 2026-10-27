@@ -47,8 +47,40 @@ object GeminiService {
 
     @Volatile
     var currentClient: FinancialAiClient = DefaultFinancialAiClient()
+        private set
 
-    fun getActiveModel(): String = DEFAULT_MODEL
+    @Volatile
+    private var nanoClient: MlKitGeminiNanoClient? = null
+
+    @Volatile
+    private var activeModel: String = DEFAULT_MODEL
+
+    fun getActiveModel(): String = activeModel
+
+    /**
+     * Probes the device and activates Gemini Nano only when the runtime confirms AVAILABLE.
+     * No model download and no cloud fallback are initiated here.
+     */
+    suspend fun enableOnDeviceGeminiNano(): NanoAvailability {
+        val candidate = nanoClient ?: MlKitGeminiNanoClient().also { nanoClient = it }
+        val availability = candidate.probeAvailability()
+        if (availability == NanoAvailability.Available) {
+            currentClient = candidate
+            activeModel = "gemini-nano-on-device"
+        } else if (currentClient === candidate) {
+            currentClient = DefaultFinancialAiClient()
+            activeModel = DEFAULT_MODEL
+        }
+        return availability
+    }
+
+    /** Return to deterministic local rules and release the optional on-device model client. */
+    fun useLocalRulesOnly() {
+        currentClient = DefaultFinancialAiClient()
+        activeModel = DEFAULT_MODEL
+        nanoClient?.close()
+        nanoClient = null
+    }
 
     fun validateModelName(model: String): String = DEFAULT_MODEL
 
