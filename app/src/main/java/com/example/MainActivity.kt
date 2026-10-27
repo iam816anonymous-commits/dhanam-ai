@@ -73,25 +73,13 @@ class MainActivity : FragmentActivity() {
 
     fun launchSystemSpeechFallback() {
         val isTe = viewModel.preferredLanguage.value == "te"
-        val fallbackIntent = viewModel.voiceAgentManager.createFallbackRecognizerIntent(isTe)
-
-        val canResolve = viewModel.voiceAgentManager.isSystemSpeechActivityAvailable(this)
-        if (canResolve) {
-            try {
-                systemSpeechLauncher.launch(fallbackIntent)
-                return
-            } catch (e: Exception) {
-                com.example.util.AppLogger.e("MainActivity", "System speech launch failed", e)
-            }
-        }
-
         val errMsg = if (isTe) {
-            "వాయిస్ రికగ్నిషన్ సేవ ప్రారంభం కాలేదు. దయచేసి మైక్ నొక్కి మళ్లీ మాట్లాడండి."
+            "ఈ పరికరంలో ఆఫ్‌లైన్ వాయిస్ గుర్తింపు అందుబాటులో లేదు. దయచేసి టైప్ చేయండి."
         } else {
-            "Voice recognition service unavailable. Please tap mic to try again."
+            "On-device speech recognition is unavailable. Type your request instead; audio will not be sent to another service."
         }
         viewModel.setVoiceErrorMessage(errMsg)
-        Toast.makeText(this, errMsg, Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, errMsg, Toast.LENGTH_LONG).show()
     }
 
     fun requestAudioPermission(callback: (Boolean) -> Unit) {
