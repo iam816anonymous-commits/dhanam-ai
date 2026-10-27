@@ -263,9 +263,21 @@ class ExpenseAgentEngine(
             return executeSingleItem(parsedItems[0], isTelugu)
         }
 
-        // All parsing and financial operations must remain on-device.
-        // Do not invoke a remote model when local parsing is uncertain.
-        // The user receives a concrete format example so they can rephrase safely.
+        // Optional on-device interpretation fallback. The model may classify a command,
+        // but it cannot invent the amount: require a locally detected amount and exact agreement.
+        // GeminiService is activated only after ML Kit confirms Gemini Nano is AVAILABLE.
+        if (parsedItems.isEmpty() &&
+            extractAmount(trimmed) > 0.0 &&
+            GeminiService.getActiveModel() == "gemini-nano-on-device"
+        ) {
+            val modelItem = interpretSingleFinancialCommandOnDevice(trimmed, isTelugu)
+            if (modelItem != null) {
+                return executeSingleItem(modelItem, isTelugu)
+            }
+        }
+
+        // Fail closed when local rules and the optional on-device interpreter cannot safely
+        // classify the request. No cloud fallback is permitted.
 
         // If amount couldn't be detected at all
         return AgentResult(
@@ -274,6 +286,90 @@ class ExpenseAgentEngine(
             message = if (isTelugu) "ఖర్చు మొత్తం (Amount) అర్థం కాలేదు. ఉదాహరణకి: 'కూరగాయలు 250, పెట్రోల్ 500' అని చెప్పండి."
             else "Could not detect expense amounts. Try saying: 'Groceries 250, Petrol 500'."
         )
+    }
+
+    /**
+     * Uses Gemini Nano only as a constrained interpreter for an otherwise-unparsed, single
+     * financial command. Actual writes still go through executeSingleItem and Room DAO logic.
+     * The model's amount is discarded unless it matches the amount extracted locally.
+     */
+    private suspend fun interpretSingleFinancialCommandOnDevice(
+        input: String,
+        isTelugu: Boolean
+    ): ParsedItem? {
+        val localAmount = extractAmount(input)
+        if (!localAmount.isFinite() || localAmount <= 0.0) return null
+
+        val prompt = """
+            You are a strict command parser for a local personal-finance Android app.
+            Interpret the user's command and return exactly one JSON object, with no markdown:
+            {"type":"EXPENSE"|"LOAN_GIVEN"|"UNKNOWN","title":"...","amount":0.0,"category":"...","personName":"","dueDateDays":7,"paymentMode":"UPI"|"Cash"|"Card"|"NetBanking","notes":""}
+            Rules:
+            - Use only details explicitly present in the user's command. Never invent a person, amount, date, or transaction.
+            - The amount must be copied from the user's text. If the command is not clearly a single expense or a money-lent transaction, use UNKNOWN.
+            - For LOAN_GIVEN, personName must be explicitly present in the command.
+            - Keep title short and natural. Use Telugu for Telugu commands and English for English commands.
+            - category must be one of Food, Dining, Transport, Shopping, Bills, Entertainment, Health, Education, Other, Lending.
+            - paymentMode must be one of UPI, Cash, Card, NetBanking.
+            User language: ${if (isTelugu) "Telugu" else "English"}
+            User command: <command>$input</command>
+        """.trimIndent()
+
+        return try {
+            val result = GeminiService.callGeminiDetailed(prompt, "gemini-nano-on-device")
+            if (result !is GeminiCallResult.Success) return null
+            val jsonText = result.text
+                .substringAfter('{', "")
+                .let { "{" + it.substringBeforeLast('}', "") + "}" }
+            if (jsonText.length < 2) return null
+            val json = JSONObject(jsonText)
+            val type = json.optString("type").uppercase(Locale.ROOT)
+            if (type != "EXPENSE" && type != "LOAN_GIVEN") return null
+
+            val modelAmount = json.optDouble("amount", Double.NaN)
+            if (!modelAmount.isFinite() || kotlin.math.abs(modelAmount - localAmount) > 0.009) return null
+
+            val title = json.optString("title").trim().take(80)
+            if (title.isBlank()) return null
+
+            val personName = json.optString("personName").trim().take(80)
+            if (type == "LOAN_GIVEN") {
+                val lower = input.lowercase(Locale.ROOT)
+                val hasLendingLanguage = listOf(
+                    "lent", "loan", "borrow", "gave", "అప్పు", "ఇచ్చాను", "ఇచ్చా", "బాకీ"
+                ).any(lower::contains)
+                if (!hasLendingLanguage || personName.isBlank()) return null
+            }
+
+            val allowedCategories = setOf(
+                "Food", "Dining", "Transport", "Shopping", "Bills",
+                "Entertainment", "Health", "Education", "Other", "Lending"
+            )
+            val rawCategory = json.optString("category")
+            val category = allowedCategories.firstOrNull { it.equals(rawCategory, ignoreCase = true) }
+                ?: "Other"
+            val allowedPaymentModes = setOf("UPI", "Cash", "Card", "NetBanking")
+            val rawPayment = json.optString("paymentMode")
+            val paymentMode = allowedPaymentModes.firstOrNull { it.equals(rawPayment, ignoreCase = true) }
+                ?: "UPI"
+
+            ParsedItem(
+                type = type,
+                title = title,
+                amount = localAmount,
+                category = if (type == "LOAN_GIVEN") "Lending" else category,
+                personName = personName,
+                dueDateDays = json.optInt("dueDateDays", 7).coerceIn(1, 365),
+                paymentMode = paymentMode,
+                notes = json.optString("notes").take(300)
+            )
+        } catch (error: Exception) {
+            com.example.util.AppLogger.w(
+                "ExpenseAgentEngine",
+                "On-device interpretation failed; falling back to local rule response"
+            )
+            null
+        }
     }
 
     private fun checkInAppNavigationCommand(input: String, isTelugu: Boolean): AgentResult? {
