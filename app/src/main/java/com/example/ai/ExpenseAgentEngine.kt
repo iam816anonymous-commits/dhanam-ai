@@ -1434,11 +1434,14 @@ class ExpenseAgentEngine(
         val catSpent = health.categorySpent.entries
             .filter { com.example.data.model.ExpenseCategory.fromString(it.key) == cat }
             .sumOf { it.value }
-        val catBudget = health.categoryBudgets[cat.displayNameEn]
-            ?: health.categoryBudgets.entries.firstOrNull {
-                com.example.data.model.ExpenseCategory.fromString(it.key) == cat
-            }?.value
-            ?: 0.0
+        val canonicalBudget = health.categoryBudgets[cat.displayNameEn] ?: 0.0
+        val catBudget = if (canonicalBudget > 0.0) {
+            canonicalBudget
+        } else {
+            health.categoryBudgets.entries.firstOrNull {
+                it.value > 0.0 && com.example.data.model.ExpenseCategory.fromString(it.key) == cat
+            }?.value ?: canonicalBudget
+        }
 
         val msg = if (isTelugu) {
             val teName = toTeluguSpokenCategory(cat.displayNameEn)
