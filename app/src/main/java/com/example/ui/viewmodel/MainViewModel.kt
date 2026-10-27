@@ -11,6 +11,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.DhanamApplication
 import com.example.ai.AdaptiveBudgetEngine
 import com.example.ai.AgentFinancialBrain
+import com.example.ai.AgentSelfTestResult
+import com.example.ai.AgentSelfTestRunner
 import com.example.ai.AgentResult
 import com.example.ai.ExpenseAgentEngine
 import com.example.ai.ResultType
@@ -1020,6 +1022,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    /** Runs read-only diagnostics against routing, CSV parsing, spending analysis and Room queries. */
+    suspend fun runAgentSelfTest(): List<AgentSelfTestResult> =
+        AgentSelfTestRunner.run(app.database)
 
     /**
      * Imports only validated expense rows from a user-selected CSV. Existing transactions are
