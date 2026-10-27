@@ -13,7 +13,7 @@ data class Expense(
     val category: String, // e.g. Food, Dining, Transport, Shopping, Bills, Entertainment, Health, Other
     val timestamp: Long = System.currentTimeMillis(),
     val notes: String = "",
-    val paymentMode: String = "UPI", // UPI, Cash, Card, NetBanking
+    val paymentMode: String = "Unknown", // UPI, Cash, Card, NetBanking, Unknown
     val detectedLanguage: String = "en" // "te" (Telugu) or "en" (English)
 )
 
