@@ -141,9 +141,32 @@ class ExpenseAgentEngine(
             val mod = ConversationalFuzzyExtractor.parseModificationRequest(trimmed, isTelugu)
             if (mod != null && mod.newAmount.isFinite() && mod.newAmount > 0.0) {
                 val targetExpense = if (mod.targetCategory != null) {
-                    expenseDao.getLatestExpenseByCategory(mod.targetCategory) ?: expenseDao.getLatestExpense()
+                    val requestedCategory = com.example.data.model.ExpenseCategory.entries.firstOrNull {
+                        com.example.data.model.ExpenseCategory.matchesLabel(mod.targetCategory, it)
+                    }
+                    expenseDao.getAllExpenses().firstOrNull { expense ->
+                        if (requestedCategory != null) {
+                            com.example.data.model.ExpenseCategory.matchesLabel(expense.category, requestedCategory)
+                        } else {
+                            expense.category.equals(mod.targetCategory, ignoreCase = true)
+                        }
+                    }
                 } else {
                     expenseDao.getLatestExpense()
+                }
+
+                if (mod.targetCategory != null && targetExpense == null) {
+                    val message = if (isTelugu) {
+                        "${mod.targetCategory} వర్గంలో మునుపటి ఖర్చు కనుగొనబడలేదు. ఏ రికార్డునూ మార్చలేదు."
+                    } else {
+                        "No previous expense was found in category '${mod.targetCategory}'. Nothing was changed."
+                    }
+                    return AgentResult(
+                        success = false,
+                        type = ResultType.ERROR,
+                        message = message,
+                        spokenSummary = message
+                    )
                 }
 
                 if (targetExpense != null) {
