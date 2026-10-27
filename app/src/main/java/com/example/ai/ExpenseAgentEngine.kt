@@ -340,11 +340,15 @@ class ExpenseAgentEngine(
                     "borrowed from", "borrow from", "i borrowed", "took a loan",
                     "take a loan", "got a loan", "అప్పు తీసుకున్న", "తీసుకున్నాను", "తీసుకున్నా"
                 ).any(lower::contains)
+                val repaymentLanguage = listOf(
+                    "gave back", "paid back", "returned", "repay", "repaid",
+                    "తిరిగి ఇచ్చాడు", "తిరిగి ఇచ్చింది", "చెల్లించాడు", "చెల్లించాను"
+                ).any(lower::contains)
                 val explicitLendingLanguage = listOf(
                     "lent", "loaned", "gave", "loan given",
                     "అప్పు ఇచ్చాను", "అప్పు ఇచ్చా", "ఇచ్చాను", "ఇచ్చా", "ఇచ్చాడు"
                 ).any(lower::contains)
-                if (!explicitLendingLanguage || inboundBorrowingLanguage || personName.isBlank()) return null
+                if (!explicitLendingLanguage || inboundBorrowingLanguage || repaymentLanguage || personName.isBlank()) return null
             }
 
             val allowedCategories = setOf(
@@ -778,10 +782,37 @@ class ExpenseAgentEngine(
         return ConversationalFuzzyExtractor.extractTitle(text, category, isTelugu)
     }
 
+    private fun validateParsedItem(item: ParsedItem): String? {
+        if (item.type != "EXPENSE" && item.type != "LOAN_GIVEN") {
+            return "Unsupported financial action."
+        }
+        if (!item.amount.isFinite() || item.amount <= 0.0) {
+            return "Amount must be a finite number greater than zero."
+        }
+        if (item.title.isBlank()) {
+            return "A transaction description is required."
+        }
+        if (item.type == "LOAN_GIVEN" && item.personName.isBlank()) {
+            return "A borrower name is required to record money lent."
+        }
+        if (item.type == "LOAN_GIVEN" && item.dueDateDays !in 1..3650) {
+            return "Loan due date must be between 1 and 3650 days."
+        }
+        return null
+    }
+
     /**
      * Executes single parsed item (Expense or Loan).
      */
     private suspend fun executeSingleItem(item: ParsedItem, isTelugu: Boolean): AgentResult {
+        validateParsedItem(item)?.let { reason ->
+            return AgentResult(
+                success = false,
+                type = ResultType.ERROR,
+                message = if (isTelugu) "రికార్డు సేవ్ చేయలేదు: $reason" else "Nothing was saved: $reason",
+                spokenSummary = if (isTelugu) "రికార్డు సేవ్ చేయలేదు." else "Nothing was saved."
+            )
+        }
         if (item.type == "LOAN_GIVEN") {
             val cal = Calendar.getInstance()
             cal.add(Calendar.DAY_OF_YEAR, item.dueDateDays)
@@ -883,6 +914,16 @@ class ExpenseAgentEngine(
      * Executes batch multi-item input (e.g. "Vegetables 200, Petrol 500, Lunch 350").
      */
     private suspend fun executeBatchItems(items: List<ParsedItem>, isTelugu: Boolean): AgentResult {
+        val invalidReason = items.firstNotNullOfOrNull(::validateParsedItem)
+        if (invalidReason != null || !items.sumOf { it.amount }.isFinite()) {
+            val reason = invalidReason ?: "Combined transaction total is too large to represent safely."
+            return AgentResult(
+                success = false,
+                type = ResultType.ERROR,
+                message = if (isTelugu) "ఏ లావాదేవీ కూడా సేవ్ చేయలేదు: $reason" else "No transactions were saved: $reason",
+                spokenSummary = if (isTelugu) "లావాదేవీలు సేవ్ చేయలేదు." else "No transactions were saved."
+            )
+        }
         val database = appDatabase
         return if (database != null) {
             // A multi-item command is one logical operation: either every record is saved or none is.
