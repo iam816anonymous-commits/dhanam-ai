@@ -222,20 +222,40 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
             if (isTelugu) {
                 val naturalTelugu = convertNumbersToTeluguWords(textTe)
                 val cleanTe = sanitizeForSpeech(naturalTelugu)
+                val teLocale = Locale.forLanguageTag("te-IN")
+                val languageStatus = tts?.isLanguageAvailable(teLocale) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                val supportsTelugu = languageStatus >= TextToSpeech.LANG_AVAILABLE
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && cachedTeluguVoice != null) {
+                // Never feed Telugu script to an English voice: that commonly sounds like gibberish.
+                // Use an installed Telugu voice when present; otherwise speak the English equivalent.
+                val teluguReady = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && cachedTeluguVoice != null) {
                     tts?.voice = cachedTeluguVoice
+                    true
+                } else if (supportsTelugu) {
+                    val setStatus = tts?.setLanguage(teLocale) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                    setStatus >= TextToSpeech.LANG_AVAILABLE
                 } else {
-                    tts?.setLanguage(Locale.forLanguageTag("te-IN"))
+                    false
                 }
-                tts?.setSpeechRate(0.88f) // Relaxed human pace for Telugu
+
+                if (!teluguReady) {
+                    _isTeluguTtsAvailable.value = false
+                    if (textEn.isNotBlank()) {
+                        tts?.setLanguage(Locale.forLanguageTag("en-IN"))
+                        tts?.setSpeechRate(0.92f)
+                        tts?.speak(sanitizeForSpeech(textEn), TextToSpeech.QUEUE_FLUSH, null, "DhanamTtsMsgEnFallback")
+                    }
+                    return
+                }
+
+                _isTeluguTtsAvailable.value = true
+                tts?.setSpeechRate(0.82f) // Slightly slower cadence helps Telugu word separation.
                 tts?.setPitch(1.0f)
                 val result = tts?.speak(cleanTe, TextToSpeech.QUEUE_FLUSH, null, "DhanamTtsMsgTe")
                 if (result != TextToSpeech.SUCCESS && textEn.isNotBlank()) {
-                    val cleanEn = sanitizeForSpeech(textEn)
                     tts?.setLanguage(Locale.forLanguageTag("en-IN"))
                     tts?.setSpeechRate(0.92f)
-                    tts?.speak(cleanEn, TextToSpeech.QUEUE_FLUSH, null, "DhanamTtsMsgEn")
+                    tts?.speak(sanitizeForSpeech(textEn), TextToSpeech.QUEUE_FLUSH, null, "DhanamTtsMsgEnFallback")
                 }
             } else {
                 val cleanEn = sanitizeForSpeech(textEn)
