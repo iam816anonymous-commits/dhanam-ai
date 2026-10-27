@@ -2,6 +2,7 @@ package com.dhanam.next
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
@@ -73,6 +74,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Emerald, secondary = Gold, background = Ink, surface = Panel, onBackground = Color(0xFFEAF4EF), onSurface = Color(0xFFEAF4EF))) {
                 DhanamApp(viewModel)
@@ -149,7 +151,7 @@ private fun DhanamApp(viewModel: MainViewModel) {
                     androidx.compose.material3.Text("RECENT ACTIVITY", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
                     Spacer(Modifier.height(8.dp))
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
-                        items(expenses.take(4), key = { it.id }) { ExpenseRow(it, {}) }
+                        items(expenses.take(4), key = { it.id }) { ExpenseRow(it) }
                     }
                 }
                 Destination.EXPENSES -> {
@@ -199,7 +201,7 @@ private fun SummaryCard(monthPaise: Long, count: Int) {
 }
 
 @Composable
-private fun ExpenseRow(expense: ExpenseEntity, onDelete: () -> Unit) {
+private fun ExpenseRow(expense: ExpenseEntity, onDelete: (() -> Unit)? = null) {
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.foundation.layout.Box(Modifier.size(38.dp).background(Emerald.copy(alpha = .12f), CircleShape), contentAlignment = Alignment.Center) {
@@ -211,7 +213,7 @@ private fun ExpenseRow(expense: ExpenseEntity, onDelete: () -> Unit) {
             }
             Column(horizontalAlignment = Alignment.End) {
                 androidx.compose.material3.Text("−" + formatRupees(expense.amountPaise), color = Gold, fontWeight = FontWeight.Bold)
-                if (onDelete != {}) IconButton(onClick = onDelete, modifier = Modifier.size(26.dp)) { Icon(Icons.Default.DeleteOutline, contentDescription = "Delete expense", tint = Muted, modifier = Modifier.size(17.dp)) }
+                if (onDelete != null) IconButton(onClick = { onDelete() }, modifier = Modifier.size(26.dp)) { Icon(Icons.Default.DeleteOutline, contentDescription = "Delete expense", tint = Muted, modifier = Modifier.size(17.dp)) }
             }
         }
     }
