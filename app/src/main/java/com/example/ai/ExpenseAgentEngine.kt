@@ -758,14 +758,14 @@ class ExpenseAgentEngine(
         }
         return when {
             text.contains("కూరగాయ") || text.contains("పాలు") || text.contains("కిరాణా") ||
-                    text.contains("grocery") || text.contains("vegetable") || text.contains("milk") ||
+                    text.contains("grocery") || text.contains("vegetable") || text.contains("milk") || text.contains("food") ||
                     text.contains("supermarket") || text.contains("fruits") || text.contains("పండ్లు") ||
                     text.contains("ತರಕಾರಿ") || text.contains("ಹಾಲು") || text.contains("ಸಬ್ಜಿ") ||
                     text.contains("दूध") || text.contains("सब्जी") || text.contains("राशन") -> ExpenseCategory.FOOD
 
             text.contains("బిర్యానీ") || text.contains("హోటల్") || text.contains("భోజనం") ||
                     text.contains("టిఫిన్") || text.contains("టీ") || text.contains("కాఫీ") ||
-                    text.contains("restaurant") || text.contains("food") || text.contains("dinner") ||
+                    text.contains("restaurant") || text.contains("dinner") ||
                     text.contains("lunch") || text.contains("swiggy") || text.contains("zomato") ||
                     text.contains("snacks") || text.contains("coffee") || text.contains("pizza") ||
                     text.contains("ಹೋಟೆಲ್") || text.contains("ಊಟ") || text.contains("ತಿಂಡಿ") ||
