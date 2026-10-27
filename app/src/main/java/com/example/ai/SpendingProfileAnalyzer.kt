@@ -89,7 +89,7 @@ object SpendingProfileAnalyzer {
         require(startMillis <= endMillis) { "startMillis must be <= endMillis" }
         require(calendarMonthCount > 0) { "calendarMonthCount must be positive" }
 
-        val selected = expenses.filter { it.timestamp in startMillis..endMillis && it.amount.isFinite() && it.amount >= 0.0 }
+        val selected = expenses.filter { it.timestamp in startMillis..endMillis && it.amount.isFinite() && it.amount > 0.0 }
         val monthFormatter = SimpleDateFormat("yyyy-MM", Locale.ROOT)
         val monthTotals = linkedMapOf<String, Pair<Double, Int>>()
         val categoryTotals = linkedMapOf<String, Pair<Double, Int>>()
@@ -114,11 +114,17 @@ object SpendingProfileAnalyzer {
             val monthCurrent = monthTotals[month] ?: (0.0 to 0)
             monthTotals[month] = (monthCurrent.first + expense.amount) to (monthCurrent.second + 1)
 
-            val category = expense.category.ifBlank { "Uncategorized" }
+            val rawCategory = expense.category.trim().ifBlank { "Uncategorized" }
+            val category = categoryTotals.keys.firstOrNull {
+                it.equals(rawCategory, ignoreCase = true)
+            } ?: rawCategory
             val catCurrent = categoryTotals[category] ?: (0.0 to 0)
             categoryTotals[category] = (catCurrent.first + expense.amount) to (catCurrent.second + 1)
 
-            val mode = expense.paymentMode.ifBlank { "Unknown" }
+            val rawMode = expense.paymentMode.trim().ifBlank { "Unknown" }
+            val mode = paymentTotals.keys.firstOrNull {
+                it.equals(rawMode, ignoreCase = true)
+            } ?: rawMode
             paymentTotals[mode] = (paymentTotals[mode] ?: 0.0) + expense.amount
 
             val normalizedTitle = expense.title.trim().lowercase(Locale.ROOT)
