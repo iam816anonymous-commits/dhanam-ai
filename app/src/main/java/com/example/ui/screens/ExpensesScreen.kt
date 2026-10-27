@@ -104,26 +104,8 @@ enum class ExpenseSortOrder(val labelEn: String, val labelTe: String) {
     AMOUNT_ASC("Lowest ₹", "తక్కువ మొత్తం")
 }
 
-private fun matchesCategoryAlias(rawValue: String, category: ExpenseCategory): Boolean {
-    val raw = rawValue.trim().lowercase(Locale.ROOT)
-    val canonical = category.displayNameEn.lowercase(Locale.ROOT)
-    if (raw == canonical || raw == category.name.lowercase(Locale.ROOT) ||
-        raw == category.displayNameTe.lowercase(Locale.ROOT)
-    ) return true
-
-    return when (category) {
-        ExpenseCategory.FOOD -> raw in setOf("food", "groceries", "grocery")
-        ExpenseCategory.DINING -> raw in setOf("dining", "snacks", "restaurant")
-        ExpenseCategory.TRANSPORT -> raw in setOf("transport", "fuel", "petrol", "travel")
-        ExpenseCategory.SHOPPING -> raw in setOf("shopping", "clothes", "clothing")
-        ExpenseCategory.BILLS -> raw in setOf("bills", "utilities", "utility")
-        ExpenseCategory.ENTERTAINMENT -> raw in setOf("entertainment", "movies", "movie")
-        ExpenseCategory.HEALTH -> raw in setOf("health", "medical", "medicine")
-        ExpenseCategory.EDUCATION -> raw in setOf("education", "fees", "fee")
-        ExpenseCategory.LENDING -> raw in setOf("lending", "money lent", "debt")
-        ExpenseCategory.OTHER -> raw in setOf("other", "uncategorized", "other miscellaneous")
-    }
-}
+private fun matchesCategoryAlias(rawValue: String, category: ExpenseCategory): Boolean =
+    ExpenseCategory.matchesLabel(rawValue, category)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
