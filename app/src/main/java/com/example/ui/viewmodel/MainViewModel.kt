@@ -529,7 +529,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isThinking.value = false
             _isProcessingAgent.value = true
 
-            val result = agentEngine.processUserInput(processedInput, preferenceManager.getPreferredLanguage())
+            val result = try {
+                agentEngine.processUserInput(processedInput, preferenceManager.getPreferredLanguage())
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                com.example.util.AppLogger.e(
+                    "MainViewModel",
+                    "Agent command failed; no success response will be shown",
+                    error
+                )
+                AgentResult(
+                    success = false,
+                    type = ResultType.ERROR,
+                    message = if (preferenceManager.getPreferredLanguage() == "te") {
+                        "ఈ చర్యను పూర్తి చేయలేకపోయాను. మీ రికార్డులు సరిగా ఉన్నాయో తనిఖీ చేసి మళ్లీ ప్రయత్నించండి."
+                    } else {
+                        "I couldn't complete that action. Please verify your records and try again."
+                    }
+                )
+            }
             val agentResponse = AgentChatMessage(
                 isUser = false,
                 text = result.message,
