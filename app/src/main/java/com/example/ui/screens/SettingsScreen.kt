@@ -80,6 +80,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.example.ai.GeminiService
 import com.example.ai.MlKitGeminiNanoClient
 import com.example.ai.NanoAvailability
 import com.example.data.model.CategoryBudget
@@ -206,6 +207,35 @@ fun SettingsScreen(
                         }
                     ) {
                         Text(if (nanoProbeInProgress) "Checking…" else "Check on-device AI support")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        enabled = !nanoProbeInProgress,
+                        onClick = {
+                            settingsScope.launch {
+                                nanoProbeInProgress = true
+                                nanoAvailabilityMessage = when (val status = GeminiService.enableOnDeviceGeminiNano()) {
+                                    NanoAvailability.Available -> "Gemini Nano enabled for this session. Requests stay on-device."
+                                    NanoAvailability.DownloadRequired -> "Gemini Nano needs model setup. No download was started; local rules remain active."
+                                    NanoAvailability.Downloading -> "Gemini Nano is still preparing; local rules remain active."
+                                    NanoAvailability.Unsupported -> "Gemini Nano is unsupported here; local rules remain active."
+                                    NanoAvailability.Unknown -> "Support is unknown; local rules remain active."
+                                    is NanoAvailability.Error -> "Could not enable Gemini Nano: " + status.message
+                                }
+                                nanoProbeInProgress = false
+                            }
+                        }
+                    ) {
+                        Text("Enable on-device AI for this session")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            GeminiService.useLocalRulesOnly()
+                            nanoAvailabilityMessage = "Local rules only. No AI model requests are active."
+                        }
+                    ) {
+                        Text("Use local rules only")
                     }
                 }
             }
