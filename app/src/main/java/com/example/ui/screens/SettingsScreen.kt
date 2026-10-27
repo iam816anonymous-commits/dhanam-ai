@@ -121,6 +121,7 @@ fun SettingsScreen(
     var categoryToEdit by remember { mutableStateOf<CategoryBudget?>(null) }
     var nanoProbeInProgress by remember { mutableStateOf(false) }
     var nanoAvailabilityMessage by remember { mutableStateOf<String?>(null) }
+    var nanoDownloadAvailable by remember { mutableStateOf(false) }
     val settingsScope = rememberCoroutineScope()
     var csvImportMessage by remember { mutableStateOf<String?>(null) }
     var selfTestRunning by remember { mutableStateOf(false) }
@@ -317,9 +318,11 @@ fun SettingsScreen(
                                     "ML Kit could not be initialized on this device."
                                 } else {
                                     try {
-                                        when (val status = client.probeAvailability()) {
+                                        val status = client.probeAvailability()
+                                        nanoDownloadAvailable = status == NanoAvailability.DownloadRequired
+                                        when (status) {
                                             NanoAvailability.Available -> "Gemini Nano is available."
-                                            NanoAvailability.DownloadRequired -> "Model download is required. No download was started."
+                                            NanoAvailability.DownloadRequired -> "Model download is available. Use the Download button below to start it explicitly."
                                             NanoAvailability.Downloading -> "Model is currently preparing."
                                             NanoAvailability.Unsupported -> "Gemini Nano is not supported on this device."
                                             NanoAvailability.Unknown -> "Could not determine support status."
@@ -342,9 +345,11 @@ fun SettingsScreen(
                         onClick = {
                             settingsScope.launch {
                                 nanoProbeInProgress = true
-                                nanoAvailabilityMessage = when (val status = GeminiService.enableOnDeviceGeminiNano()) {
+                                val status = GeminiService.enableOnDeviceGeminiNano()
+                                nanoDownloadAvailable = status == NanoAvailability.DownloadRequired
+                                nanoAvailabilityMessage = when (status) {
                                     NanoAvailability.Available -> "Gemini Nano enabled for this session. Requests stay on-device."
-                                    NanoAvailability.DownloadRequired -> "Gemini Nano needs model setup. No download was started; local rules remain active."
+                                    NanoAvailability.DownloadRequired -> "Gemini Nano needs its on-device model. Download it explicitly below; local rules remain active until ready."
                                     NanoAvailability.Downloading -> "Gemini Nano is still preparing; local rules remain active."
                                     NanoAvailability.Unsupported -> "Gemini Nano is unsupported here; local rules remain active."
                                     NanoAvailability.Unknown -> "Support is unknown; local rules remain active."
@@ -356,9 +361,32 @@ fun SettingsScreen(
                     ) {
                         Text("Enable on-device AI for this session")
                     }
+                    Button(
+                        enabled = !nanoProbeInProgress && nanoDownloadAvailable,
+                        onClick = {
+                            settingsScope.launch {
+                                nanoProbeInProgress = true
+                                nanoAvailabilityMessage = "Downloading Gemini Nano to this device…"
+                                val status = GeminiService.downloadOnDeviceGeminiNano()
+                                nanoDownloadAvailable = status == NanoAvailability.DownloadRequired
+                                nanoAvailabilityMessage = when (status) {
+                                    NanoAvailability.Available -> "Gemini Nano downloaded and enabled for this session. Requests stay on-device."
+                                    NanoAvailability.DownloadRequired -> "The model is still not ready. Check device support and try again."
+                                    NanoAvailability.Downloading -> "Gemini Nano is still downloading. Check again when it finishes."
+                                    NanoAvailability.Unsupported -> "Gemini Nano is unsupported on this device; local rules remain active."
+                                    NanoAvailability.Unknown -> "Could not verify the model after download; local rules remain active."
+                                    is NanoAvailability.Error -> "Gemini Nano download failed: " + status.message
+                                }
+                                nanoProbeInProgress = false
+                            }
+                        }
+                    ) {
+                        Text(if (nanoProbeInProgress) "Preparing on-device model…" else "Download Gemini Nano model")
+                    }
                     OutlinedButton(
                         onClick = {
                             GeminiService.useLocalRulesOnly()
+                            nanoDownloadAvailable = false
                             nanoAvailabilityMessage = "Local rules only. No AI model requests are active."
                         }
                     ) {
