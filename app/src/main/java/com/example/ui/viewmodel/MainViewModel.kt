@@ -879,9 +879,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         paymentMode: String,
         notes: String
     ) {
+        if (title.isBlank() || !amount.isFinite() || amount <= 0.0 ||
+            category.isBlank() || paymentMode.isBlank()
+        ) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid manual expense")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val exp = Expense(
-                title = title,
+                title = title.trim(),
                 amount = amount,
                 category = category,
                 paymentMode = paymentMode,
@@ -896,6 +902,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateExpense(expense: Expense) {
+        if (expense.title.isBlank() || !expense.amount.isFinite() || expense.amount <= 0.0 ||
+            expense.category.isBlank() || expense.paymentMode.isBlank()
+        ) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid expense update")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             expenseDao.updateExpense(expense)
             refreshMonthMetrics()
@@ -940,11 +952,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         notes: String,
         phoneNumber: String
     ) {
+        if (personName.isBlank() || !amount.isFinite() || amount <= 0.0 || dueDateDays !in 1..3650) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid manual loan")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val cal = Calendar.getInstance()
             cal.add(Calendar.DAY_OF_YEAR, dueDateDays)
             val loan = Loan(
-                personName = personName,
+                personName = personName.trim(),
                 amount = amount,
                 dueDateMillis = cal.timeInMillis,
                 notes = notes,
@@ -956,12 +972,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateLoan(loan: Loan) {
+        if (loan.personName.isBlank() || !loan.amount.isFinite() || loan.amount <= 0.0 ||
+            !loan.amountPaid.isFinite() || loan.amountPaid < 0.0 || loan.amountPaid > loan.amount
+        ) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid loan update")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             loanDao.updateLoan(loan)
         }
     }
 
     fun extendLoanDueDate(loan: Loan, additionalDays: Int) {
+        if (additionalDays <= 0 || additionalDays > 3650) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid loan due-date extension")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val baseTime = loan.dueDateMillis ?: System.currentTimeMillis()
             val cal = Calendar.getInstance().apply {
@@ -974,6 +1000,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun recordRepayment(loan: Loan, repaymentAmount: Double) {
+        val outstanding = loan.amount - loan.amountPaid
+        if (!repaymentAmount.isFinite() || repaymentAmount <= 0.0 ||
+            !outstanding.isFinite() || outstanding <= 0.0 || repaymentAmount > outstanding
+        ) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid or excessive loan repayment")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val newPaid = loan.amountPaid + repaymentAmount
             val updated = loan.copy(
