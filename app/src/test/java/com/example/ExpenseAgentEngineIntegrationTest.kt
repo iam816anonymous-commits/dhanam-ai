@@ -214,6 +214,15 @@ class ExpenseAgentEngineIntegrationTest {
     }
 
     @Test
+    fun categorySpendingQueryDoesNotInventAnUnconfiguredBudget() = runBlocking {
+        val result = engine.processUserInput("How much did I spend on food?", forceLanguage = "en")
+
+        assertTrue(result.success)
+        assertTrue(result.message.contains("No category budget is set"))
+        assertTrue(!result.message.contains("5000"))
+    }
+
+    @Test
     fun testPendingLoansKhataInquiry() = runBlocking {
         // Lend money to Rajesh
         engine.processUserInput("రాజేష్ కి 800 ఇచ్చాను", forceLanguage = "te")
