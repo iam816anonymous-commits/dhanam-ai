@@ -32,7 +32,9 @@ data class AgentResult(
     val suggestions: List<String> = emptyList(),
     val spokenSummary: String? = null,
     val spokenSummaryTe: String? = null,
-    val spokenSummaryEn: String? = null
+    val spokenSummaryEn: String? = null,
+    val confirmationRequired: Boolean = false,
+    val pendingDeletionExpense: Expense? = null
 )
 
 enum class ResultType {
@@ -42,6 +44,7 @@ enum class ResultType {
     NAVIGATION_ACTION,
     INSIGHTS,
     OUT_OF_SCOPE,
+    CONFIRMATION_REQUIRED,
     ERROR
 }
 
@@ -107,23 +110,18 @@ class ExpenseAgentEngine(
         if (classifiedIntent == ConversationalFuzzyExtractor.DetectedIntent.UNDO_LAST) {
             val latestExpense = expenseDao.getLatestExpense()
             if (latestExpense != null) {
-                expenseDao.deleteExpense(latestExpense)
                 val msg = if (isTelugu) {
-                    "చివరిగా నమోదైన '${latestExpense.title}' (₹${latestExpense.amount.toInt()}) ఖర్చు రద్దు చేయబడింది."
+                    "చివరి ఖర్చు '${latestExpense.title}' (₹${latestExpense.amount.toInt()}) తొలగించబడుతుంది. కొనసాగించడానికి CONFIRM DELETE అని, ఆపడానికి CANCEL అని చెప్పండి."
                 } else {
-                    "Undid last transaction: removed '${latestExpense.title}' (₹${latestExpense.amount.toInt()})."
+                    "This will delete the latest expense '${latestExpense.title}' (₹${latestExpense.amount.toInt()}). Reply CONFIRM DELETE to proceed or CANCEL to keep it."
                 }
-                val spokenTe = "చివరి ఖర్చు రద్దు చేశాను."
-                val spokenEn = "Undid last expense."
                 return AgentResult(
                     success = true,
-                    type = ResultType.EXPENSE_RECORDED,
+                    type = ResultType.CONFIRMATION_REQUIRED,
                     message = msg,
-                    recordedExpenses = emptyList(),
-                    totalRecordedAmount = 0.0,
-                    spokenSummary = if (isTelugu) spokenTe else spokenEn,
-                    spokenSummaryTe = spokenTe,
-                    spokenSummaryEn = spokenEn
+                    confirmationRequired = true,
+                    pendingDeletionExpense = latestExpense,
+                    spokenSummary = msg
                 )
             } else {
                 val noExpMsg = if (isTelugu) "రద్దు చేయడానికి ఎలాంటి ఖర్చులు కనుగొనబడలేదు." else "No recent expense found to undo."
