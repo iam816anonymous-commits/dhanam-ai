@@ -103,7 +103,6 @@ fun SettingsScreen(
     val categoryBudgets by viewModel.categoryBudgets.collectAsState()
     val isVoiceEnabled by viewModel.voiceFeedbackEnabled.collectAsState()
     val appPin by viewModel.appPin.collectAsState()
-    val isCloudAiOptIn by viewModel.isCloudAiOptIn.collectAsState()
     val adaptivePlan by viewModel.adaptivePlan.collectAsState()
     val isTelugu = preferredLang == "te"
 
@@ -618,62 +617,7 @@ fun SettingsScreen(
             }
         }
 
-        // Cloud AI Opt-In Toggle Card (Privacy & Transparency)
-        item {
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.secondaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Psychology,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = if (isTelugu) "క్లౌడ్ AI సహాయం (ఐచ్ఛికం)" else "Cloud AI Assistance (Optional)",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = if (isTelugu) "స్థానిక పార్సింగ్ విఫలమైనప్పుడు క్లౌడ్ AI (Gemini) ని ఉపయోగించండి. ఆఫ్‌లో ఉన్నప్పుడు మీ ఆర్థిక డేటా కేవలం మీ ఫోన్‌లోనే ఉంటుంది."
-                                else "Allow Gemini AI fallback when on-device parsing is uncertain. When off, data stays 100% on-device.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Switch(
-                        checked = isCloudAiOptIn,
-                        onCheckedChange = { viewModel.setCloudAiOptIn(it) },
-                        modifier = Modifier.testTag("cloud_ai_opt_in_switch")
-                    )
-                }
-            }
-        }
+        // Network AI is intentionally not offered: this app runs in offline-only privacy mode.
 
         // 4. Language Preference
         item {
