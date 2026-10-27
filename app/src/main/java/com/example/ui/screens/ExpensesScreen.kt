@@ -104,6 +104,27 @@ enum class ExpenseSortOrder(val labelEn: String, val labelTe: String) {
     AMOUNT_ASC("Lowest ₹", "తక్కువ మొత్తం")
 }
 
+private fun matchesCategoryAlias(rawValue: String, category: ExpenseCategory): Boolean {
+    val raw = rawValue.trim().lowercase(Locale.ROOT)
+    val canonical = category.displayNameEn.lowercase(Locale.ROOT)
+    if (raw == canonical || raw == category.name.lowercase(Locale.ROOT) ||
+        raw == category.displayNameTe.lowercase(Locale.ROOT)
+    ) return true
+
+    return when (category) {
+        ExpenseCategory.FOOD -> raw in setOf("food", "groceries", "grocery")
+        ExpenseCategory.DINING -> raw in setOf("dining", "snacks", "restaurant")
+        ExpenseCategory.TRANSPORT -> raw in setOf("transport", "fuel", "petrol", "travel")
+        ExpenseCategory.SHOPPING -> raw in setOf("shopping", "clothes", "clothing")
+        ExpenseCategory.BILLS -> raw in setOf("bills", "utilities", "utility")
+        ExpenseCategory.ENTERTAINMENT -> raw in setOf("entertainment", "movies", "movie")
+        ExpenseCategory.HEALTH -> raw in setOf("health", "medical", "medicine")
+        ExpenseCategory.EDUCATION -> raw in setOf("education", "fees", "fee")
+        ExpenseCategory.LENDING -> raw in setOf("lending", "money lent", "debt")
+        ExpenseCategory.OTHER -> raw in setOf("other", "uncategorized", "other miscellaneous")
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExpensesScreen(
@@ -144,10 +165,16 @@ fun ExpensesScreen(
     val budgetProgress = if (overallBudget > 0) (totalSpent / overallBudget).toFloat().coerceIn(0f, 1f) else 0f
     val isOverallOverspent = totalSpent > overallBudget
 
-    // Check if any category has exceeded budget
-    val overspentCategory = categoryTotals.firstOrNull { total ->
-        val limit = categoryBudgets.firstOrNull { it.category == total.category }?.monthlyLimit ?: 5000.0
-        total.total > limit
+    // Only report overspending against a budget the user actually configured.
+    val overspentCategory = categoryBudgets.firstNotNullOfOrNull { budget ->
+        val category = ExpenseCategory.entries.firstOrNull { matchesCategoryAlias(budget.category, it) }
+            ?: return@firstNotNullOfOrNull null
+        val spent = categoryTotals.filter { matchesCategoryAlias(it.category, category) }.sumOf { it.total }
+        if (budget.monthlyLimit.isFinite() && budget.monthlyLimit > 0.0 && spent > budget.monthlyLimit) {
+            budget to spent
+        } else {
+            null
+        }
     }
 
     val filteredExpenses = expenses.filter { exp ->
@@ -289,13 +316,14 @@ fun ExpensesScreen(
             // Overspending Banner if any category crossed limit
             if (overspentCategory != null) {
                 item {
-                    val limit = categoryBudgets.firstOrNull { it.category == overspentCategory.category }?.monthlyLimit ?: 5000.0
+                    val budget = overspentCategory.first
+                    val spent = overspentCategory.second
                     OverspendingBanner(
-                        title = if (isTelugu) "${overspentCategory.category} బడ్జెట్ మించిపోయింది!" else "Overspending in ${overspentCategory.category}!",
+                        title = if (isTelugu) "${budget.category} బడ్జెట్ మించిపోయింది!" else "Overspending in ${budget.category}!",
                         message = if (isTelugu)
-                            "మీరు ఈ విభాగానికి కేటాయించిన ₹${limit.toInt()} కంటే ఎక్కువ ఖర్చు చేశారు (ఖర్చు: ₹${overspentCategory.total.toInt()})."
+                            "మీరు ఈ విభాగానికి కేటాయించిన ₹${budget.monthlyLimit.toInt()} కంటే ఎక్కువ ఖర్చు చేశారు (ఖర్చు: ₹${spent.toInt()})."
                         else
-                            "You have spent ₹${overspentCategory.total.toInt()} against the monthly limit of ₹${limit.toInt()}."
+                            "You have spent ₹${spent.toInt()} against the monthly limit of ₹${budget.monthlyLimit.toInt()}."
                     )
                 }
             }
@@ -314,10 +342,14 @@ fun ExpensesScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(ExpenseCategory.entries.filter { it != ExpenseCategory.LENDING }) { cat ->
-                        val catTotal = categoryTotals.firstOrNull { it.category.equals(cat.displayNameEn, ignoreCase = true) }?.total ?: 0.0
-                        val limit = categoryBudgets.firstOrNull { it.category.equals(cat.displayNameEn, ignoreCase = true) }?.monthlyLimit ?: 5000.0
-                        val pct = if (limit > 0) (catTotal / limit).toFloat().coerceIn(0f, 1f) else 0f
-                        val isOver = catTotal > limit
+                        val catTotal = categoryTotals
+                            .filter { matchesCategoryAlias(it.category, cat) }
+                            .sumOf { it.total }
+                        val limit = categoryBudgets.firstOrNull { matchesCategoryAlias(it.category, cat) }
+                            ?.monthlyLimit
+                            ?.takeIf { it.isFinite() && it > 0.0 }
+                        val pct = limit?.let { (catTotal / it).toFloat().coerceIn(0f, 1f) } ?: 0f
+                        val isOver = limit != null && catTotal > limit
 
                         Card(
                             shape = RoundedCornerShape(14.dp),
@@ -367,17 +399,22 @@ fun ExpensesScreen(
                                     )
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
-                                LinearProgressIndicator(
-                                    progress = { pct },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(5.dp)
-                                        .clip(RoundedCornerShape(3.dp)),
-                                    color = if (isOver) AlertRed else EmeraldPrimaryLight
-                                )
+                                if (limit != null) {
+                                    LinearProgressIndicator(
+                                        progress = { pct },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(5.dp)
+                                            .clip(RoundedCornerShape(3.dp)),
+                                        color = if (isOver) AlertRed else EmeraldPrimaryLight
+                                    )
+                                } else {
+                                    Spacer(modifier = Modifier.height(5.dp))
+                                }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Limit: ₹${limit.toInt()}",
+                                    text = limit?.let { "Limit: ₹${it.toInt()}" }
+                                        ?: if (isTelugu) "పరిమితి సెట్ చేయలేదు" else "No limit set",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontSize = 10.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -587,7 +624,7 @@ fun ExpensesScreen(
     }
 
     categoryToEditBudget?.let { catName ->
-        val currentLimit = categoryBudgets.firstOrNull { it.category.equals(catName, ignoreCase = true) }?.monthlyLimit ?: 5000.0
+        val currentLimit = categoryBudgets.firstOrNull { it.category.equals(catName, ignoreCase = true) }?.monthlyLimit ?: 0.0
         SetCategoryBudgetDialog(
             category = catName,
             currentLimit = currentLimit,
