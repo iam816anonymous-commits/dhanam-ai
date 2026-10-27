@@ -62,6 +62,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val agentEngine = ExpenseAgentEngine(expenseDao, loanDao, budgetDao, preferenceManager, app.merchantCache, app.database)
     private var pendingAgentDeletion: Expense? = null
+    private var pendingAgentDeletionRequestedAtMillis: Long = 0L
+    private val pendingDeletionConfirmationTtlMillis = 120_000L
 
     // User Preferences
     val themeMode: StateFlow<String> = preferenceManager.themeMode
@@ -545,12 +547,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val pendingDeletion = pendingAgentDeletion
             val confirmationText = processedInput.trim().lowercase(Locale.ROOT)
+            val pendingDeletionExpired = pendingDeletion != null &&
+                System.currentTimeMillis() - pendingAgentDeletionRequestedAtMillis > pendingDeletionConfirmationTtlMillis
             val result = try {
                 when {
+                    pendingDeletionExpired -> {
+                        pendingAgentDeletion = null
+                        pendingAgentDeletionRequestedAtMillis = 0L
+                        AgentResult(
+                            success = false,
+                            type = ResultType.ERROR,
+                            message = if (preferenceManager.getPreferredLanguage() == "te")
+                                "తొలగింపు నిర్ధారణ గడువు ముగిసింది. తొలగించాలనుకుంటే మళ్లీ అభ్యర్థించండి."
+                            else "Deletion confirmation expired. Request the deletion again if you still want to proceed."
+                        )
+                    }
                     pendingDeletion != null && confirmationText in setOf(
                         "cancel", "cancel delete", "no", "keep it", "రద్దు", "వద్దు"
                     ) -> {
                         pendingAgentDeletion = null
+                        pendingAgentDeletionRequestedAtMillis = 0L
                         AgentResult(
                             success = true,
                             type = ResultType.ACTION_COMPLETED,
@@ -561,22 +577,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     pendingDeletion != null && confirmationText in setOf(
                         "confirm delete", "confirm", "yes", "yes delete", "delete it", "అవును", "అవును తొలగించు"
                     ) -> {
-                        expenseDao.deleteExpense(pendingDeletion)
+                        val currentExpense = expenseDao.getExpenseById(pendingDeletion.id)
                         pendingAgentDeletion = null
-                        AgentResult(
-                            success = true,
-                            type = ResultType.ACTION_COMPLETED,
-                            message = if (preferenceManager.getPreferredLanguage() == "te")
-                                "'${pendingDeletion.title}' ఖర్చును తొలగించాను."
-                            else "Deleted expense '${pendingDeletion.title}' (₹${pendingDeletion.amount.toInt()})."
-                        )
+                        pendingAgentDeletionRequestedAtMillis = 0L
+                        when {
+                            currentExpense == null -> AgentResult(
+                                success = false,
+                                type = ResultType.ERROR,
+                                message = if (preferenceManager.getPreferredLanguage() == "te")
+                                    "ఈ ఖర్చు ఇప్పటికే తొలగించబడింది. ఏ మార్పూ చేయలేదు."
+                                else "That expense no longer exists. Nothing was changed."
+                            )
+                            currentExpense != pendingDeletion -> AgentResult(
+                                success = false,
+                                type = ResultType.ERROR,
+                                message = if (preferenceManager.getPreferredLanguage() == "te")
+                                    "ఖర్చు వివరాలు మారాయి. భద్రత కోసం తొలగించలేదు; మళ్లీ అభ్యర్థించండి."
+                                else "That expense changed after the prompt. For safety, it was not deleted; request deletion again."
+                            )
+                            else -> {
+                                expenseDao.deleteExpense(currentExpense)
+                                AgentResult(
+                                    success = true,
+                                    type = ResultType.ACTION_COMPLETED,
+                                    message = if (preferenceManager.getPreferredLanguage() == "te")
+                                        "'${currentExpense.title}' ఖర్చును తొలగించాను."
+                                    else "Deleted expense '${currentExpense.title}' (₹${currentExpense.amount.toInt()})."
+                                )
+                            }
+                        }
                     }
                     pendingDeletion != null -> AgentResult(
                         success = false,
                         type = ResultType.CONFIRMATION_REQUIRED,
                         message = if (preferenceManager.getPreferredLanguage() == "te")
                             "తొలగింపును నిర్ధారించడానికి CONFIRM DELETE అని లేదా ఆపడానికి CANCEL అని చెప్పండి."
-                        else "A deletion is pending. Reply CONFIRM DELETE to proceed or CANCEL to keep the expense."
+                        else "A deletion is pending. Reply CONFIRM DELETE to proceed or CANCEL to keep the expense.",
+                        confirmationRequired = true,
+                        pendingDeletionExpense = pendingDeletion
                     )
                     else -> agentEngine.processUserInput(processedInput, preferenceManager.getPreferredLanguage())
                 }
@@ -598,8 +636,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 )
             }
-            if (result.confirmationRequired) {
+            if (result.confirmationRequired && pendingDeletion == null && result.pendingDeletionExpense != null) {
                 pendingAgentDeletion = result.pendingDeletionExpense
+                pendingAgentDeletionRequestedAtMillis = System.currentTimeMillis()
             }
 
             val agentResponse = AgentChatMessage(
