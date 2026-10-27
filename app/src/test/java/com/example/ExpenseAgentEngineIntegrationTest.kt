@@ -148,6 +148,18 @@ class ExpenseAgentEngineIntegrationTest {
     }
 
     @Test
+    fun explicitFullSettlementPhraseCanCloseLoanWithoutNumericAmount() = runBlocking {
+        engine.processUserInput("రమేష్ కి 1000 ఇచ్చాను", forceLanguage = "te")
+
+        val result = engine.processUserInput("రమేష్ అప్పు తీరింది", forceLanguage = "te")
+
+        assertTrue(result.success)
+        val loan = db.loanDao().getAllLoans().single()
+        assertTrue(loan.isSettled)
+        assertEquals(1000.0, loan.amountPaid, 0.001)
+    }
+
+    @Test
     fun repaymentGreaterThanOutstandingBalanceIsRejected() = runBlocking {
         engine.processUserInput("రమేష్ కి 1000 ఇచ్చాను", forceLanguage = "te")
 
