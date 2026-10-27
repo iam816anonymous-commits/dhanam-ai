@@ -1593,6 +1593,16 @@ class ExpenseAgentEngine(
     private suspend fun handleLoanRepayment(text: String, isTelugu: Boolean): AgentResult {
         val lower = text.lowercase(Locale.ROOT)
         val amount = extractAmount(lower)
+        if (!amount.isFinite() || amount < 0.0) {
+            val message = if (isTelugu) "చెల్లించిన సరైన మొత్తాన్ని చెప్పండి." else "Please provide a valid repayment amount."
+            return AgentResult(false, ResultType.ERROR, message, spokenSummary = message)
+        }
+        val explicitFullSettlement = listOf(
+            "paid in full", "fully repaid", "settled the loan", "settled in full",
+            "paid everything", "cleared the loan", "loan is settled",
+            "పూర్తిగా చెల్లించాడు", "పూర్తిగా చెల్లించాను", "అప్పు తీర్చాడు",
+            "మొత్తం చెల్లించాడు", "పూర్తి బాకీ చెల్లించాడు", "అప్పు తీరింది"
+        ).any(lower::contains)
 
         var person = ConversationalFuzzyExtractor.extractPerson(text, isTelugu)
         if (person == "Borrower" || person == "Friend" || person == "స్నేహితుడు") {
@@ -1659,9 +1669,35 @@ class ExpenseAgentEngine(
             )
         }
 
-        val remaining = targetLoan.amount - targetLoan.amountPaid
-        val repayAmount = if (amount > 0.0) amount.coerceAtMost(remaining) else remaining
-        val newPaid = (targetLoan.amountPaid + repayAmount).coerceAtMost(targetLoan.amount)
+        val remaining = (targetLoan.amount - targetLoan.amountPaid).coerceAtLeast(0.0)
+        if (amount <= 0.0 && !explicitFullSettlement) {
+            val message = if (isTelugu) {
+                "${targetLoan.personName} వద్ద ఇంకా ₹${remaining.toInt()} బాకీ ఉంది. ఎంత తిరిగి ఇచ్చారో చెప్పండి; మొత్తం చెల్లించినట్లయితే 'పూర్తిగా చెల్లించాడు' అని స్పష్టంగా చెప్పండి."
+            } else {
+                "${targetLoan.personName} still owes ₹${remaining.toInt()}. Tell me the amount repaid, or explicitly say the loan was paid in full."
+            }
+            return AgentResult(
+                success = false,
+                type = ResultType.ERROR,
+                message = message,
+                spokenSummary = message
+            )
+        }
+        if (amount > remaining) {
+            val message = if (isTelugu) {
+                "చెప్పిన ₹${amount.toInt()} మొత్తం మిగిలిన బాకీ ₹${remaining.toInt()} కంటే ఎక్కువ. రికార్డును మార్చలేదు; సరైన మొత్తాన్ని చెప్పండి."
+            } else {
+                "The reported repayment of ₹${amount.toInt()} exceeds the outstanding balance of ₹${remaining.toInt()}. Nothing was changed; please check the amount."
+            }
+            return AgentResult(
+                success = false,
+                type = ResultType.ERROR,
+                message = message,
+                spokenSummary = message
+            )
+        }
+        val repayAmount = if (amount > 0.0) amount else remaining
+        val newPaid = targetLoan.amountPaid + repayAmount
         val isSettledNow = newPaid >= targetLoan.amount
 
         val updated = targetLoan.copy(
