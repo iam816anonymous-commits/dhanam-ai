@@ -1,6 +1,7 @@
 package com.example.ai
 
 import com.example.data.model.Expense
+import com.example.data.model.ExpenseCategory
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -115,7 +116,9 @@ object SpendingProfileAnalyzer {
             monthTotals[month] = (monthCurrent.first + expense.amount) to (monthCurrent.second + 1)
 
             val rawCategory = expense.category.trim().ifBlank { "Uncategorized" }
-            val category = categoryTotals.keys.firstOrNull {
+            val category = ExpenseCategory.entries.firstOrNull {
+                ExpenseCategory.matchesLabel(rawCategory, it)
+            }?.displayNameEn ?: categoryTotals.keys.firstOrNull {
                 it.equals(rawCategory, ignoreCase = true)
             } ?: rawCategory
             val catCurrent = categoryTotals[category] ?: (0.0 to 0)
