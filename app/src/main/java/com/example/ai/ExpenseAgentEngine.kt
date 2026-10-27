@@ -669,13 +669,8 @@ class ExpenseAgentEngine(
         val cachedMerchant = merchantCache?.resolveMerchant(lower)
         val category = cachedMerchant?.first ?: determineCategory(lower)
         val title = extractTitle(text, category, isTelugu)
-        val paymentMode = if (cachedMerchant != null &&
-            !lower.contains("cash") && !lower.contains("నగదు") &&
-            !lower.contains("card") && !lower.contains("కార్డ్") &&
-            !lower.contains("netbanking") && !lower.contains("బ్యాంక్") &&
-            !lower.contains("upi") && !lower.contains("gpay") &&
-            !lower.contains("google pay") && !lower.contains("phonepe") && !lower.contains("paytm")
-        ) cachedMerchant.second else ConversationalFuzzyExtractor.detectPaymentMode(text)
+        // Merchant history can suggest a category, but must not invent how this transaction was paid.
+        val paymentMode = ConversationalFuzzyExtractor.detectPaymentMode(text)
 
         return ParsedItem(
             type = "EXPENSE",
