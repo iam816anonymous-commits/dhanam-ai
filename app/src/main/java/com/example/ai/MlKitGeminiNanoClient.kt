@@ -33,6 +33,22 @@ class MlKitGeminiNanoClient(
             )
     }
 
+    /**
+     * Starts a model download only when explicitly requested by the user and the runtime
+     * reports DOWNLOADABLE. It never invokes a cloud model or changes the active provider.
+     */
+    suspend fun downloadModel(): NanoAvailability = withContext(Dispatchers.IO) {
+        when (val status = probeAvailability()) {
+            NanoAvailability.DownloadRequired -> try {
+                model.download().collect { /* Keep collection active until the download flow completes. */ }
+                probeAvailability()
+            } catch (error: Exception) {
+                NanoAvailability.Error(error.message ?: "Gemini Nano model download failed")
+            }
+            else -> status
+        }
+    }
+
     override suspend fun generateContent(
         prompt: String,
         model: String
