@@ -310,7 +310,7 @@ class ExpenseAgentEngine(
             - The amount must be copied from the user's text. If the command is not clearly a single expense or a money-lent transaction, use UNKNOWN.
             - For LOAN_GIVEN, personName must be explicitly present in the command.
             - Keep title short and natural. Use Telugu for Telugu commands and English for English commands.
-            - category must be one of Food, Dining, Transport, Shopping, Bills, Entertainment, Health, Education, Other, Lending.
+            - category must be one of Food, Dining, Transport, Shopping, Bills, Entertainment, Health, Education, Other.
             - paymentMode must be one of UPI, Cash, Card, NetBanking, Unknown. Use Unknown if the user did not specify it.
             User language: ${if (isTelugu) "Telugu" else "English"}
             User command: <command>$input</command>
@@ -336,8 +336,7 @@ class ExpenseAgentEngine(
             val personName = json.optString("personName").trim().take(80)
             if (type == "LOAN_GIVEN") {
                 val lower = input.lowercase(Locale.ROOT)
-                val hasLendingLanguage = listOf(
-                    val inboundBorrowingLanguage = listOf(
+                val inboundBorrowingLanguage = listOf(
                     "borrowed from", "borrow from", "i borrowed", "took a loan",
                     "take a loan", "got a loan", "అప్పు తీసుకున్న", "తీసుకున్నాను", "తీసుకున్నా"
                 ).any(lower::contains)
