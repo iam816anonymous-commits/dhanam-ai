@@ -6,7 +6,7 @@ Branch: `fix/financial-integrity-priority-1`
 
 1. **Preserve budget precision.** Overall budgets are now stored as decimal strings rather than narrowed to a 32-bit float. The reader accepts legacy numeric SharedPreferences values and migrates them to strings without changing valid saved values.
 2. **Reject invalid overall budgets.** Non-finite and negative values are ignored by the preference setter.
-3. **Stop inventing category limits.** Expense confirmation/overspending calculations no longer substitute a fabricated ₹5,000 category budget when the configured budget is missing.
+3. **Stop inventing category limits.** Monthly health calculations and expense confirmation/overspending calculations now use no configured limit (₹0 / no warning) rather than substituting a fabricated ₹5,000 category budget.
 4. **Stop false overspending notifications.** The ViewModel only sends a category overspending notification when a real category budget exists and is greater than zero.
 
 ## Verification status
