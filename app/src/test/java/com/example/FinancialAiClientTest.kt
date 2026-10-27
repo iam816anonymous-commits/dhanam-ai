@@ -29,25 +29,15 @@ class FinancialAiClientTest {
     }
 
     @Test
-    fun testModelValidationAllowlistAndRemoteConfig() {
-        // Reset remote model
-        GeminiService.setRemoteModelConfig(null)
-        assertEquals("gemini-2.5-flash", GeminiService.getActiveModel())
-
-        // Valid remote model config
-        GeminiService.setRemoteModelConfig("gemini-2.0-flash")
-        assertEquals("gemini-2.0-flash", GeminiService.getActiveModel())
-
-        // Invalid remote model config should be rejected and fall back to last-known good model
-        GeminiService.setRemoteModelConfig("unauthorized-malicious-model")
-        assertEquals("gemini-2.0-flash", GeminiService.getActiveModel())
-
-        assertEquals("gemini-2.0-flash", GeminiService.validateModelName("invalid-model-name"))
+    fun defaultClientFailsClosedWithoutSendingInputToCloud() = runTest {
+        val result = DefaultFinancialAiClient().generateContent("my salary is 50000")
+        assertTrue(result is GeminiCallResult.NetworkError)
+        assertTrue((result as GeminiCallResult.NetworkError).message.contains("No data was sent"))
     }
+
     @Test
-    fun blankPromptIsRejectedBeforeFirebaseInitialization() = runTest {
-        val result = GeminiService.generateWithFirebaseAi("   ")
+    fun blankPromptIsRejected() = runTest {
+        val result = DefaultFinancialAiClient().generateContent("   ")
         assertTrue(result is GeminiCallResult.ParseError)
     }
-
 }
