@@ -1047,6 +1047,15 @@ class ExpenseAgentEngine(
         val categoryTotals = expenseDao.getCategoryTotalsInRange(startOfMonth, now)
         val totalSpent = categoryTotals.sumOf { it.total }
         val overallBudget = preferenceManager.getOverallBudget()
+        if (!overallBudget.isFinite() || overallBudget <= 0.0) {
+            return if (isTelugu) listOf(
+                "💡 నెలవారీ బడ్జెట్ సెట్ చేయలేదు. ఖచ్చితమైన రోజువారీ ఖర్చు సూచనల కోసం ముందుగా బడ్జెట్ సెట్ చేయండి.",
+                "💡 మీ ఖర్చులను క్రమం తప్పకుండా నమోదు చేయండి; అప్పుడు మీ ఖర్చుల నమూనాలను విశ్లేషించగలను."
+            ) else listOf(
+                "💡 No monthly budget is configured. Set one to get a meaningful daily spending allowance.",
+                "💡 Keep recording expenses so your spending patterns can be analyzed accurately."
+            )
+        }
         val remainingBudget = (overallBudget - totalSpent).coerceAtLeast(0.0)
         val dailySafeToSpend = (remainingBudget / daysRemaining).toInt()
 
@@ -1210,7 +1219,20 @@ class ExpenseAgentEngine(
         val health = calculateCurrentMonthHealth()
         val totalSpent = health.totalSpent
         val budget = health.overallBudget
-        val percent = if (budget > 0) (totalSpent / budget * 100).toInt() else 0
+        if (!budget.isFinite() || budget <= 0.0) {
+            val message = if (isTelugu) {
+                "ఈ నెల ఖర్చు ₹${totalSpent.toInt()}. మొత్తం నెలవారీ బడ్జెట్ ఇంకా సెట్ చేయలేదు."
+            } else {
+                "This month's recorded spending is ₹${totalSpent.toInt()}. No monthly budget is configured yet."
+            }
+            return AgentResult(
+                success = true,
+                type = ResultType.INSIGHTS,
+                message = message,
+                spokenSummary = message
+            )
+        }
+        val percent = (totalSpent / budget * 100).toInt()
 
         val topCat = health.categorySpent.maxByOrNull { it.value }
 
@@ -1238,6 +1260,19 @@ class ExpenseAgentEngine(
         val health = calculateCurrentMonthHealth()
         val budget = health.overallBudget
         val spent = health.totalSpent
+        if (!budget.isFinite() || budget <= 0.0) {
+            val message = if (isTelugu) {
+                "ఈ నెల నమోదు చేసిన ఖర్చు: ₹${spent.toInt()}. ఇంకా నెలవారీ బడ్జెట్ సెట్ చేయలేదు; రోజువారీ పరిమితిని లెక్కించలేను."
+            } else {
+                "Recorded spending this month: ₹${spent.toInt()}. No monthly budget is configured, so I can't calculate a daily allowance."
+            }
+            return AgentResult(
+                success = true,
+                type = ResultType.INSIGHTS,
+                message = message,
+                spokenSummary = message
+            )
+        }
         val remaining = (budget - spent).coerceAtLeast(0.0)
         val dailySafe = health.dailySafeToSpend
 
