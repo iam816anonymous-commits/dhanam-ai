@@ -699,10 +699,11 @@ class ExpenseAgentEngine(
         merchantCache?.recordMerchantUsage(item.title, item.category, item.paymentMode)
 
         val health = calculateCurrentMonthHealth()
-        val catSpent = health.categorySpent[item.category] ?: item.amount
-        val catBudget = health.categoryBudgets[item.category] ?: 5000.0
-        val percentUsed = if (catBudget > 0) (catSpent / catBudget) * 100 else 0.0
-        val isOverspent = percentUsed >= 80.0
+        // Never invent spending or a category limit when the persisted aggregate is unavailable.
+        val catSpent = health.categorySpent[item.category] ?: 0.0
+        val catBudget = health.categoryBudgets[item.category] ?: 0.0
+        val percentUsed = if (catBudget > 0.0) (catSpent / catBudget) * 100.0 else 0.0
+        val isOverspent = catBudget > 0.0 && percentUsed >= 80.0
 
         val warningMsg = if (isOverspent) {
             if (isTelugu) "⚠️ హెచ్చరిక! ${toTeluguSpokenCategory(item.category)} లో బడ్జెట్ ${percentUsed.toInt()}% పూర్తయింది (₹${catSpent.toInt()} / ₹${catBudget.toInt()})."
