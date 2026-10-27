@@ -45,7 +45,7 @@ object ConversationalFuzzyExtractor {
         val category: ExpenseCategory,
         val isLoan: Boolean = false,
         val personName: String = "",
-        val paymentMode: String = "UPI",
+        val paymentMode: String = "Unknown",
         val dueDateDays: Int = 7
     )
 
@@ -603,7 +603,9 @@ object ConversationalFuzzyExtractor {
             lower.contains("cash") || lower.contains("నగదు") || lower.contains("roked") -> "Cash"
             lower.contains("card") || lower.contains("credit") || lower.contains("debit") || lower.contains("కార్డు") -> "Card"
             lower.contains("netbanking") || lower.contains("net banking") || lower.contains("bank transfer") -> "NetBanking"
-            else -> "UPI" // Default Indian fintech standard
+            lower.contains("upi") || lower.contains("gpay") || lower.contains("google pay") ||
+                lower.contains("phonepe") || lower.contains("paytm") -> "UPI"
+            else -> "Unknown"
         }
     }
 
