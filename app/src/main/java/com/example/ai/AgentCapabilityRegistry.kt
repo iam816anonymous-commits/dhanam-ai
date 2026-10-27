@@ -82,20 +82,25 @@ object AgentCapabilityRegistry {
     }
 
     /**
-     * Validate mappings against actual compiled method names, not just non-empty documentation strings.
-     * This catches registry entries that silently drift away from the ViewModel/analyzer API.
+     * Compile-time callable references keep this registry tied to real application entry points.
+     * Unlike runtime reflection, this remains valid in minified release builds.
      */
-    private fun hasCallableImplementation(capability: AgentCapability): Boolean {
-        val owner = capability.implementation.substringBeforeLast('.', missingDelimiterValue = "")
-        val method = capability.implementation.substringAfterLast('.', missingDelimiterValue = "")
-        if (owner.isBlank() || method.isBlank()) return false
+    private val callableImplementations: Map<String, Any> = mapOf(
+        "MainViewModel.setCurrentScreen" to com.example.ui.viewmodel.MainViewModel::setCurrentScreen,
+        "MainViewModel.addManualExpense" to com.example.ui.viewmodel.MainViewModel::addManualExpense,
+        "MainViewModel.updateExpense" to com.example.ui.viewmodel.MainViewModel::updateExpense,
+        "MainViewModel.deleteExpense" to com.example.ui.viewmodel.MainViewModel::deleteExpense,
+        "MainViewModel.importExpensesFromCsv" to com.example.ui.viewmodel.MainViewModel::importExpensesFromCsv,
+        "MainViewModel.exportAndShareCsv" to com.example.ui.viewmodel.MainViewModel::exportAndShareCsv,
+        "MainViewModel.addManualLoan" to com.example.ui.viewmodel.MainViewModel::addManualLoan,
+        "MainViewModel.updateLoan" to com.example.ui.viewmodel.MainViewModel::updateLoan,
+        "MainViewModel.recordRepayment" to com.example.ui.viewmodel.MainViewModel::recordRepayment,
+        "MainViewModel.deleteLoan" to com.example.ui.viewmodel.MainViewModel::deleteLoan,
+        "MainViewModel.setOverallMonthlyBudget" to com.example.ui.viewmodel.MainViewModel::setOverallMonthlyBudget,
+        "MainViewModel.clearAllData" to com.example.ui.viewmodel.MainViewModel::clearAllData,
+        "SpendingProfileAnalyzer.analyze" to SpendingProfileAnalyzer::analyze
+    )
 
-        val ownerClass = when (owner) {
-            "MainViewModel" -> com.example.ui.viewmodel.MainViewModel::class.java
-            "SpendingProfileAnalyzer" -> SpendingProfileAnalyzer::class.java
-            else -> return false
-        }
-        return ownerClass.methods.any { it.name == method } ||
-            ownerClass.declaredMethods.any { it.name == method }
-    }
+    private fun hasCallableImplementation(capability: AgentCapability): Boolean =
+        capability.implementation in callableImplementations
 }
