@@ -77,15 +77,16 @@ class ExpenseAgentEngine(
 
         val isTelugu = forceLanguage == "te" || containsTelugu(trimmed)
 
-        // 1. In-App Jarvis Operational & Navigation Commands
+        // Historical analysis takes precedence over the generic "history" navigation alias.
+        // It reads local Room records and never fabricates missing transactions.
+        if (isHistoricalAnalysisRequest(trimmed)) {
+            return handleHistoricalSpendingAnalysis(isTelugu)
+        }
+
+        // In-app navigation is resolved through the audited capability registry first.
         val navResult = checkInAppNavigationCommand(trimmed, isTelugu)
         if (navResult != null) {
             return navResult
-        }
-
-        // 1.5 Historical spending profile: compute from local Room records, never fabricated data.
-        if (isHistoricalAnalysisRequest(trimmed)) {
-            return handleHistoricalSpendingAnalysis(isTelugu)
         }
 
         // 2. Strict Domain Boundary Check: Refuse non-financial inquiries
@@ -281,6 +282,34 @@ class ExpenseAgentEngine(
 
         // Guard: If input contains a monetary amount, it is an expense or loan, NOT a pure navigation command!
         if (extractAmount(lower) > 0.0) return null
+
+        AgentCapabilityRegistry.resolveNavigation(lower)?.let { capability ->
+            val navigationAction = when (capability.screen) {
+                com.example.ui.navigation.Screen.AGENT -> "AGENT"
+                com.example.ui.navigation.Screen.EXPENSES -> "EXPENSES"
+                com.example.ui.navigation.Screen.KHATA -> "KHATA"
+                com.example.ui.navigation.Screen.INSIGHTS -> "INSIGHTS"
+                com.example.ui.navigation.Screen.SETTINGS -> "SETTINGS"
+            }
+            val message = if (isTelugu) {
+                when (capability.screen) {
+                    com.example.ui.navigation.Screen.AGENT -> "ఏజెంట్ హోమ్ స్క్రీన్‌కి మారుతున్నాను."
+                    com.example.ui.navigation.Screen.EXPENSES -> "ఖర్చుల స్క్రీన్‌కి మారుతున్నాను."
+                    com.example.ui.navigation.Screen.KHATA -> "అప్పుల ఖాతా స్క్రీన్‌కి మారుతున్నాను."
+                    com.example.ui.navigation.Screen.INSIGHTS -> "విశ్లేషణ స్క్రీన్‌కి మారుతున్నాను."
+                    com.example.ui.navigation.Screen.SETTINGS -> "సెట్టింగ్స్ స్క్రీన్‌కి మారుతున్నాను."
+                }
+            } else {
+                "Opening ${capability.screen.titleEn}."
+            }
+            return AgentResult(
+                success = true,
+                type = ResultType.NAVIGATION_ACTION,
+                message = message,
+                spokenSummary = message,
+                navigationAction = navigationAction
+            )
+        }
 
         // 1. Lending Khata Screen
         if (lower.contains("khata") || lower.contains("lending") || lower.contains("loan") ||
