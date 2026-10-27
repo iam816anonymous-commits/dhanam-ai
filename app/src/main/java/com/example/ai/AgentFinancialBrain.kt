@@ -70,10 +70,10 @@ object AgentFinancialBrain {
             .filter { it != ExpenseCategory.LENDING }
             .map { cat ->
                 val spent = categoryTotals
-                    .filter { ExpenseCategory.fromString(it.category) == cat }
+                    .filter { ExpenseCategory.matchesLabel(it.category, cat) }
                     .sumOf { it.total }
                 val configuredBudget = categoryBudgets.firstOrNull {
-                    ExpenseCategory.fromString(it.category) == cat
+                    ExpenseCategory.matchesLabel(it.category, cat)
                 }?.monthlyLimit?.takeIf { it.isFinite() && it > 0.0 }
                 val budget = configuredBudget ?: 0.0
                 val pct = configuredBudget?.let { ((spent / it) * 100).toInt() } ?: 0
