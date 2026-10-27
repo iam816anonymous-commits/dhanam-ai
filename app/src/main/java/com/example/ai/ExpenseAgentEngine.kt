@@ -1432,14 +1432,14 @@ class ExpenseAgentEngine(
         // Imported CSVs may use short labels ("Food", "Transport") while in-app records
         // use canonical labels ("Food & Groceries", "Transport & Fuel"). Match both safely.
         val catSpent = health.categorySpent.entries
-            .filter { com.example.data.model.ExpenseCategory.fromString(it.key) == cat }
+            .filter { com.example.data.model.ExpenseCategory.matchesLabel(it.key, cat) }
             .sumOf { it.value }
         val canonicalBudget = health.categoryBudgets[cat.displayNameEn] ?: 0.0
         val catBudget = if (canonicalBudget > 0.0) {
             canonicalBudget
         } else {
             health.categoryBudgets.entries.firstOrNull {
-                it.value > 0.0 && com.example.data.model.ExpenseCategory.fromString(it.key) == cat
+                it.value > 0.0 && com.example.data.model.ExpenseCategory.matchesLabel(it.key, cat)
             }?.value ?: canonicalBudget
         }
 
