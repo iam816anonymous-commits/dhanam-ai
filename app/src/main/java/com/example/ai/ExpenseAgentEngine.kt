@@ -83,6 +83,11 @@ class ExpenseAgentEngine(
             return navResult
         }
 
+        // 1.5 Historical spending profile: compute from local Room records, never fabricated data.
+        if (isHistoricalAnalysisRequest(trimmed)) {
+            return handleHistoricalSpendingAnalysis(isTelugu)
+        }
+
         // 2. Strict Domain Boundary Check: Refuse non-financial inquiries
         val outOfScopeMessage = AgentFinancialBrain.checkDomainScope(trimmed, isTelugu)
         if (outOfScopeMessage != null) {
@@ -1157,6 +1162,54 @@ class ExpenseAgentEngine(
             spokenSummary = if (isTelugu) spokenTe else spokenEn,
             spokenSummaryTe = spokenTe,
             spokenSummaryEn = spokenEn
+        )
+    }
+
+    private fun isHistoricalAnalysisRequest(input: String): Boolean {
+        val normalized = input.lowercase(Locale.ROOT)
+        val explicitRequests = listOf(
+            "last year", "past year", "last 12 months", "past 12 months",
+            "spending profile", "expense history", "spending history",
+            "yearly spending", "annual spending", "analyze my expenses",
+            "analyse my expenses", "analyze my spending", "analyse my spending",
+            "analyze expenses", "analyse expenses", "12-month spending",
+            "గత సంవత్సరం", "గత ఏడాది ఖర్చులు", "గత 12 నెలలు",
+            "ఖర్చుల విశ్లేషణ", "నా ఖర్చులను విశ్లేషించు", "నా ఖర్చుల వివరాలు"
+        )
+        return explicitRequests.any(normalized::contains)
+    }
+
+    private suspend fun handleHistoricalSpendingAnalysis(isTelugu: Boolean): AgentResult {
+        val endMillis = System.currentTimeMillis()
+        val startCalendar = Calendar.getInstance().apply {
+            timeInMillis = endMillis
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            add(Calendar.MONTH, -11)
+        }
+        val expenses = expenseDao.getExpensesInRange(startCalendar.timeInMillis, endMillis)
+        val profile = SpendingProfileAnalyzer.analyze(
+            expenses = expenses,
+            startMillis = startCalendar.timeInMillis,
+            endMillis = endMillis,
+            calendarMonthCount = 12
+        )
+        val message = profile.toMessage(isTelugu)
+        val spokenSummary = if (isTelugu) {
+            "గత 12 నెలల ఖర్చుల విశ్లేషణ సిద్ధంగా ఉంది. మొత్తం ఖర్చు ${profile.totalSpent.toInt()} రూపాయలు."
+        } else {
+            "Your 12-month spending profile is ready. Total recorded spending is ${profile.totalSpent.toInt()} rupees."
+        }
+        return AgentResult(
+            success = true,
+            type = ResultType.INSIGHTS,
+            message = message,
+            spokenSummary = spokenSummary,
+            spokenSummaryTe = "గత 12 నెలల ఖర్చుల విశ్లేషణ సిద్ధంగా ఉంది.",
+            spokenSummaryEn = "Your 12-month spending profile is ready."
         )
     }
 
