@@ -54,10 +54,28 @@ class PreferenceManager(context: Context) {
         _isBiometricEnabled.value = enabled
     }
 
-    fun getOverallBudget(): Double = prefs.getFloat(KEY_OVERALL_BUDGET, 35000f).toDouble()
+    /**
+     * Reads the budget as a Double without narrowing it through SharedPreferences' Float API.
+     * Migrates the legacy Float representation in place while preserving existing user settings.
+     */
+    fun getOverallBudget(): Double {
+        val storedValue = prefs.all[KEY_OVERALL_BUDGET]
+        val parsed = when (storedValue) {
+            is String -> storedValue.toDoubleOrNull()
+            is Number -> storedValue.toDouble()
+            else -> null
+        }?.takeIf { it.isFinite() && it >= 0.0 }
+
+        val budget = parsed ?: 35000.0
+        if (storedValue !is String || parsed == null) {
+            prefs.edit().putString(KEY_OVERALL_BUDGET, budget.toString()).apply()
+        }
+        return budget
+    }
 
     fun setOverallBudget(budget: Double) {
-        prefs.edit().putFloat(KEY_OVERALL_BUDGET, budget.toFloat()).apply()
+        if (!budget.isFinite() || budget < 0.0) return
+        prefs.edit().putString(KEY_OVERALL_BUDGET, budget.toString()).apply()
         _overallBudget.value = budget
     }
 

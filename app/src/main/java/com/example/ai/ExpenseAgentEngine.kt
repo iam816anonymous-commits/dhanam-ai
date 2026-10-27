@@ -1,5 +1,7 @@
 package com.example.ai
 
+import androidx.room.withTransaction
+import com.example.data.local.AppDatabase
 import com.example.data.local.BudgetDao
 import com.example.data.local.ExpenseDao
 import com.example.data.local.LoanDao
@@ -59,7 +61,8 @@ class ExpenseAgentEngine(
     private val loanDao: LoanDao,
     private val budgetDao: BudgetDao,
     private val preferenceManager: PreferenceManager,
-    private val merchantCache: AdaptiveMerchantCache? = null
+    private val merchantCache: AdaptiveMerchantCache? = null,
+    private val appDatabase: AppDatabase? = null
 ) {
 
     suspend fun processUserInput(input: String, forceLanguage: String? = null): AgentResult {
@@ -699,10 +702,11 @@ class ExpenseAgentEngine(
         merchantCache?.recordMerchantUsage(item.title, item.category, item.paymentMode)
 
         val health = calculateCurrentMonthHealth()
-        val catSpent = health.categorySpent[item.category] ?: item.amount
-        val catBudget = health.categoryBudgets[item.category] ?: 5000.0
-        val percentUsed = if (catBudget > 0) (catSpent / catBudget) * 100 else 0.0
-        val isOverspent = percentUsed >= 80.0
+        // Never invent spending or a category limit when the persisted aggregate is unavailable.
+        val catSpent = health.categorySpent[item.category] ?: 0.0
+        val catBudget = health.categoryBudgets[item.category] ?: 0.0
+        val percentUsed = if (catBudget > 0.0) (catSpent / catBudget) * 100.0 else 0.0
+        val isOverspent = catBudget > 0.0 && percentUsed >= 80.0
 
         val warningMsg = if (isOverspent) {
             if (isTelugu) "⚠️ హెచ్చరిక! ${toTeluguSpokenCategory(item.category)} లో బడ్జెట్ ${percentUsed.toInt()}% పూర్తయింది (₹${catSpent.toInt()} / ₹${catBudget.toInt()})."
@@ -742,6 +746,16 @@ class ExpenseAgentEngine(
      * Executes batch multi-item input (e.g. "Vegetables 200, Petrol 500, Lunch 350").
      */
     private suspend fun executeBatchItems(items: List<ParsedItem>, isTelugu: Boolean): AgentResult {
+        val database = appDatabase
+        return if (database != null) {
+            // A multi-item command is one logical operation: either every record is saved or none is.
+            database.withTransaction { executeBatchItemsInternal(items, isTelugu) }
+        } else {
+            executeBatchItemsInternal(items, isTelugu)
+        }
+    }
+
+    private suspend fun executeBatchItemsInternal(items: List<ParsedItem>, isTelugu: Boolean): AgentResult {
         val savedExpenses = mutableListOf<Expense>()
         val savedLoans = mutableListOf<Loan>()
         var totalAmount = 0.0
@@ -858,7 +872,7 @@ class ExpenseAgentEngine(
         val budgetMap = mutableMapOf<String, Double>()
         for (cat in activeCategories) {
             val b = budgetDao.getBudgetForCategory(cat.displayNameEn)
-            budgetMap[cat.displayNameEn] = b?.monthlyLimit ?: 5000.0
+            budgetMap[cat.displayNameEn] = b?.monthlyLimit ?: 0.0
         }
 
         return MonthHealth(

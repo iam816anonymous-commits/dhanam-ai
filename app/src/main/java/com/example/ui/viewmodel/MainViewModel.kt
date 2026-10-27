@@ -55,7 +55,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val preferenceManager = app.preferenceManager
     val voiceAgentManager = VoiceAgentManager(application)
 
-    private val agentEngine = ExpenseAgentEngine(expenseDao, loanDao, budgetDao, preferenceManager, app.merchantCache)
+    private val agentEngine = ExpenseAgentEngine(expenseDao, loanDao, budgetDao, preferenceManager, app.merchantCache, app.database)
 
     // User Preferences
     val themeMode: StateFlow<String> = preferenceManager.themeMode
@@ -529,7 +529,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isThinking.value = false
             _isProcessingAgent.value = true
 
-            val result = agentEngine.processUserInput(processedInput, preferenceManager.getPreferredLanguage())
+            val result = try {
+                agentEngine.processUserInput(processedInput, preferenceManager.getPreferredLanguage())
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                com.example.util.AppLogger.e(
+                    "MainViewModel",
+                    "Agent command failed; no success response will be shown",
+                    error
+                )
+                AgentResult(
+                    success = false,
+                    type = ResultType.ERROR,
+                    message = if (preferenceManager.getPreferredLanguage() == "te") {
+                        "ఈ చర్యను పూర్తి చేయలేకపోయాను. మీ రికార్డులు సరిగా ఉన్నాయో తనిఖీ చేసి మళ్లీ ప్రయత్నించండి."
+                    } else {
+                        "I couldn't complete that action. Please verify your records and try again."
+                    }
+                )
+            }
             val agentResponse = AgentChatMessage(
                 isUser = false,
                 text = result.message,
@@ -835,8 +854,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun checkAndNotifyOverspending(category: String) {
         try {
             val catTotal = _categoryTotals.value.firstOrNull { it.category.equals(category, ignoreCase = true) }?.total ?: 0.0
-            val catBudget = categoryBudgets.value.firstOrNull { it.category.equals(category, ignoreCase = true) }?.monthlyLimit ?: 5000.0
-            if (catTotal > catBudget) {
+            // Do not send a warning based on an invented default limit; the user must have a saved budget.
+            val catBudget = categoryBudgets.value.firstOrNull { it.category.equals(category, ignoreCase = true) }?.monthlyLimit
+                ?: return
+            if (catBudget > 0.0 && catTotal > catBudget) {
                 val isTe = preferenceManager.getPreferredLanguage() == "te"
                 com.example.notifications.NotificationReminderManager.showOverspendingAlertNotification(
                     getApplication(),
