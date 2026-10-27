@@ -975,7 +975,7 @@ fun EditExpenseDialog(
     var title by remember { mutableStateOf(expense.title) }
     var amountStr by remember { mutableStateOf("${expense.amount.toInt()}") }
     var selectedCategory by remember { mutableStateOf(expense.category) }
-    var selectedPaymentMode by remember { mutableStateOf(expense.paymentMode.ifBlank { "UPI" }) }
+    var selectedPaymentMode by remember { mutableStateOf(expense.paymentMode.ifBlank { "Unknown" }) }
     var notes by remember { mutableStateOf(expense.notes) }
     var categoryExpanded by remember { mutableStateOf(false) }
     var amountValidationError by remember { mutableStateOf<String?>(null) }
