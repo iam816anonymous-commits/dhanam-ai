@@ -4,10 +4,7 @@ import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 /**
  * Optional Gemini Nano provider backed by Android AICore through ML Kit Prompt API.
@@ -46,12 +43,9 @@ class MlKitGeminiNanoClient(
 
         when (val availability = probeAvailability()) {
             NanoAvailability.Available -> try {
-                val response = suspendCancellableCoroutine { continuation ->
-                    this@MlKitGeminiNanoClient.model.generateContent(prompt)
-                        .addOnSuccessListener { result -> continuation.resume(result) }
-                        .addOnFailureListener { error -> continuation.resumeWithException(error) }
-                        .addOnCanceledListener { continuation.cancel() }
-                }
+                // ML Kit Prompt API exposes a suspend function, not a Google Play Task.
+                // Calling it directly preserves coroutine cancellation and gives a typed response.
+                val response = this@MlKitGeminiNanoClient.model.generateContent(prompt)
                 val generatedText = response.text
                 if (generatedText.isNullOrBlank()) {
                     GeminiCallResult.ParseError("On-device model returned an empty response")
