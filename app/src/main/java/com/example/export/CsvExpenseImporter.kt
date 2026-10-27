@@ -24,8 +24,12 @@ data class CsvExpenseImportResult(
  * It is deliberately side-effect free: callers validate duplicates and write to Room separately.
  */
 object CsvExpenseImporter {
+    private const val MAX_CSV_CHARACTERS = 5_000_000
+    private const val MAX_CSV_RECORDS = 100_000
+    private const val MAX_CSV_COLUMNS = 100
+
     fun parse(reader: Reader): CsvExpenseImportResult {
-        val raw = reader.readText().removePrefix("\uFEFF")
+        val raw = readBounded(reader).removePrefix("\uFEFF")
         if (raw.isBlank()) return CsvExpenseImportResult(emptyList(), emptyList(), false)
 
         val records = parseCsvRecords(raw)
@@ -84,7 +88,8 @@ object CsvExpenseImporter {
             }
 
             val category = row.getOrNull(categoryIndex).orEmpty().trim().ifBlank { "Other" }
-            val paymentMode = row.getOrNull(paymentIndex).orEmpty().trim().ifBlank { "UPI" }
+            // Missing payment metadata must remain unknown; do not invent UPI usage in reports.
+            val paymentMode = row.getOrNull(paymentIndex).orEmpty().trim().ifBlank { "Unknown" }
             val notes = row.getOrNull(notesIndex).orEmpty().trim()
             expenses += Expense(
                 title = title,
@@ -143,6 +148,20 @@ object CsvExpenseImporter {
         return parsed?.takeIf { position.index == value.length }
     }
 
+    private fun readBounded(reader: Reader): String {
+        val output = StringBuilder()
+        val buffer = CharArray(8_192)
+        while (true) {
+            val count = reader.read(buffer)
+            if (count < 0) break
+            require(output.length + count <= MAX_CSV_CHARACTERS) {
+                "CSV exceeds the maximum supported size of 5 MB."
+            }
+            output.append(buffer, 0, count)
+        }
+        return output.toString()
+    }
+
     private fun parseCsvRecords(text: String): List<List<String>> {
         val records = mutableListOf<List<String>>()
         var row = mutableListOf<String>()
@@ -158,6 +177,9 @@ object CsvExpenseImporter {
                 }
                 char == '"' -> inQuotes = !inQuotes
                 char == ',' && !inQuotes -> {
+                    require(row.size < MAX_CSV_COLUMNS) {
+                        "CSV contains more than $MAX_CSV_COLUMNS columns in one record."
+                    }
                     row += field.toString()
                     field.setLength(0)
                 }
@@ -165,7 +187,12 @@ object CsvExpenseImporter {
                     if (char == '\r' && index + 1 < text.length && text[index + 1] == '\n') index++
                     row += field.toString()
                     field.setLength(0)
-                    if (row.any { it.isNotEmpty() }) records += row
+                    if (row.any { it.isNotEmpty() }) {
+                        require(records.size < MAX_CSV_RECORDS) {
+                            "CSV contains more than $MAX_CSV_RECORDS records."
+                        }
+                        records += row
+                    }
                     row = mutableListOf()
                 }
                 else -> field.append(char)
@@ -174,7 +201,15 @@ object CsvExpenseImporter {
         }
         require(!inQuotes) { "CSV contains an unterminated quoted field." }
         row += field.toString()
-        if (row.any { it.isNotEmpty() }) records += row
+        if (row.any { it.isNotEmpty() }) {
+            require(records.size < MAX_CSV_RECORDS) {
+                "CSV contains more than $MAX_CSV_RECORDS records."
+            }
+            records += row
+        }
+        require(row.size <= MAX_CSV_COLUMNS) {
+            "CSV contains more than $MAX_CSV_COLUMNS columns in one record."
+        }
         return records
     }
 }
