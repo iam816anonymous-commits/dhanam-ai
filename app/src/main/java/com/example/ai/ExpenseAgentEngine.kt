@@ -1085,10 +1085,13 @@ class ExpenseAgentEngine(
         val dailySafe = (remaining / daysRemaining).toInt()
 
         val activeCategories = ExpenseCategory.entries.filter { it != ExpenseCategory.LENDING }
+        val savedCategoryBudgets = budgetDao.getAllCategoryBudgets()
         val budgetMap = mutableMapOf<String, Double>()
         for (cat in activeCategories) {
-            val b = budgetDao.getBudgetForCategory(cat.displayNameEn)
-            budgetMap[cat.displayNameEn] = b?.monthlyLimit ?: 0.0
+            val configuredLimit = savedCategoryBudgets.firstOrNull {
+                ExpenseCategory.matchesLabel(it.category, cat)
+            }?.monthlyLimit?.takeIf { it.isFinite() && it > 0.0 }
+            budgetMap[cat.displayNameEn] = configuredLimit ?: 0.0
         }
 
         return MonthHealth(
