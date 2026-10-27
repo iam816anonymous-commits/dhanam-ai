@@ -57,12 +57,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalLocale
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dhanam.next.data.local.ExpenseEntity
 import com.dhanam.next.ui.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 private val Ink = Color(0xFF081512)
 private val Panel = Color(0xFF10231E)
@@ -202,6 +202,7 @@ private fun SummaryCard(monthPaise: Long, count: Int) {
 
 @Composable
 private fun ExpenseRow(expense: ExpenseEntity, onDelete: (() -> Unit)? = null) {
+    val currentLocale = LocalLocale.current.platformLocale
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.foundation.layout.Box(Modifier.size(38.dp).background(Emerald.copy(alpha = .12f), CircleShape), contentAlignment = Alignment.Center) {
@@ -209,7 +210,7 @@ private fun ExpenseRow(expense: ExpenseEntity, onDelete: (() -> Unit)? = null) {
             }
             Column(Modifier.weight(1f).padding(start = 11.dp)) {
                 androidx.compose.material3.Text(expense.title, color = Color.White, fontWeight = FontWeight.SemiBold)
-                androidx.compose.material3.Text(expense.category + " · " + SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(expense.occurredAtEpochMillis)), color = Muted, fontSize = 11.sp)
+                androidx.compose.material3.Text(expense.category + " · " + SimpleDateFormat("dd MMM", currentLocale).format(Date(expense.occurredAtEpochMillis)), color = Muted, fontSize = 11.sp)
             }
             Column(horizontalAlignment = Alignment.End) {
                 androidx.compose.material3.Text("−" + formatRupees(expense.amountPaise), color = Gold, fontWeight = FontWeight.Bold)
