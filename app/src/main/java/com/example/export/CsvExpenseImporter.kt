@@ -155,7 +155,7 @@ object CsvExpenseImporter {
             val count = reader.read(buffer)
             if (count < 0) break
             require(output.length + count <= MAX_CSV_CHARACTERS) {
-                "CSV exceeds the maximum supported size of 5 MB."
+                "CSV exceeds the maximum supported size of 5 million characters."
             }
             output.append(buffer, 0, count)
         }
@@ -167,7 +167,29 @@ object CsvExpenseImporter {
         var row = mutableListOf<String>()
         val field = StringBuilder()
         var inQuotes = false
+        var afterQuote = false
         var index = 0
+
+        fun finishField() {
+            require(row.size < MAX_CSV_COLUMNS) {
+                "CSV contains more than $MAX_CSV_COLUMNS columns in one record."
+            }
+            row += field.toString()
+            field.setLength(0)
+            afterQuote = false
+        }
+
+        fun finishRecord() {
+            finishField()
+            if (row.any { it.isNotEmpty() }) {
+                require(records.size < MAX_CSV_RECORDS) {
+                    "CSV contains more than $MAX_CSV_RECORDS records."
+                }
+                records += row
+            }
+            row = mutableListOf()
+        }
+
         while (index < text.length) {
             val char = text[index]
             when {
@@ -175,41 +197,34 @@ object CsvExpenseImporter {
                     field.append('"')
                     index++
                 }
-                char == '"' -> inQuotes = !inQuotes
-                char == ',' && !inQuotes -> {
-                    require(row.size < MAX_CSV_COLUMNS) {
-                        "CSV contains more than $MAX_CSV_COLUMNS columns in one record."
-                    }
-                    row += field.toString()
-                    field.setLength(0)
+                char == '"' && inQuotes -> {
+                    inQuotes = false
+                    afterQuote = true
                 }
-                (char == '\n' || char == '\r') && !inQuotes -> {
-                    if (char == '\r' && index + 1 < text.length && text[index + 1] == '\n') index++
-                    row += field.toString()
-                    field.setLength(0)
-                    if (row.any { it.isNotEmpty() }) {
-                        require(records.size < MAX_CSV_RECORDS) {
-                            "CSV contains more than $MAX_CSV_RECORDS records."
-                        }
-                        records += row
+                char == '"' && !inQuotes -> {
+                    require(field.isEmpty() && !afterQuote) {
+                        "CSV contains a quote inside an unquoted field."
                     }
-                    row = mutableListOf()
+                    inQuotes = true
+                }
+                afterQuote && char == ',' -> finishField()
+                afterQuote && (char == '\n' || char == '\r') -> {
+                    finishRecord()
+                    if (char == '\r' && index + 1 < text.length && text[index + 1] == '\n') index++
+                }
+                afterQuote && char.isWhitespace() -> Unit
+                afterQuote -> throw IllegalArgumentException("CSV contains unexpected text after a closing quote.")
+                char == ',' && !inQuotes -> finishField()
+                (char == '\n' || char == '\r') && !inQuotes -> {
+                    finishRecord()
+                    if (char == '\r' && index + 1 < text.length && text[index + 1] == '\n') index++
                 }
                 else -> field.append(char)
             }
             index++
         }
         require(!inQuotes) { "CSV contains an unterminated quoted field." }
-        row += field.toString()
-        if (row.any { it.isNotEmpty() }) {
-            require(records.size < MAX_CSV_RECORDS) {
-                "CSV contains more than $MAX_CSV_RECORDS records."
-            }
-            records += row
-        }
-        require(row.size <= MAX_CSV_COLUMNS) {
-            "CSV contains more than $MAX_CSV_COLUMNS columns in one record."
-        }
+        if (row.isNotEmpty() || field.isNotEmpty() || afterQuote) finishRecord()
         return records
     }
 }
