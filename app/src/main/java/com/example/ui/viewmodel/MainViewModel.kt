@@ -545,7 +545,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         pendingAgentDeletion = null
                         AgentResult(
                             success = true,
-                            type = ResultType.ERROR,
+                            type = ResultType.ACTION_COMPLETED,
                             message = if (preferenceManager.getPreferredLanguage() == "te")
                                 "సరే, ఖర్చు అలాగే ఉంచాను." else "Cancelled. The expense was kept."
                         )
@@ -557,7 +557,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         pendingAgentDeletion = null
                         AgentResult(
                             success = true,
-                            type = ResultType.EXPENSE_RECORDED,
+                            type = ResultType.ACTION_COMPLETED,
                             message = if (preferenceManager.getPreferredLanguage() == "te")
                                 "'${pendingDeletion.title}' ఖర్చును తొలగించాను."
                             else "Deleted expense '${pendingDeletion.title}' (₹${pendingDeletion.amount.toInt()})."
