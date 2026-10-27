@@ -59,6 +59,24 @@ class MainActivityNavigationTest {
     }
 
     @Test
+    fun invalidFinancialFormInputShowsValidationInsteadOfSavingFallbackValues() {
+        composeRule.onNodeWithTag("nav_item_expenses").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("add_expense_fab").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Save").performClick()
+        composeRule.onNodeWithText("Enter a valid amount greater than zero.").assertExists()
+        composeRule.onNodeWithText("Cancel").performClick()
+
+        composeRule.onNodeWithTag("nav_item_khata").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("add_loan_fab").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Save").performClick()
+        composeRule.onNodeWithText("Enter the person's name.").assertExists()
+    }
+
+    @Test
     fun settingsExposesCsvImportAndReadOnlyDiagnostics() {
         composeRule.onNodeWithTag("nav_item_settings").performClick()
         composeRule.waitForIdle()
