@@ -8,10 +8,22 @@ Dhanam AI must not send financial records, prompts, transcripts, contact names, 
 
 - Remove Firebase SDK dependencies and Google Services / Secrets Gradle plugins.
 - Remove android.permission.INTERNET and ACCESS_NETWORK_STATE from the application manifest. The app process therefore has no ordinary Android network permission.
-- Replace the cloud Gemini implementation with a fail-closed offline placeholder. It does not attempt a network request. Existing deterministic intent and expense parsers continue to handle supported commands.
+- Keep deterministic intent and expense parsers as the default. Add an optional ML Kit Prompt API adapter for Gemini Nano; it performs a runtime capability probe and only runs inference when ML Kit reports the model AVAILABLE. The adapter uses no API key and does not call a cloud AI endpoint. It does not automatically download a model. If unavailable, existing local rules remain active and no cloud fallback occurs.
 - Keep financial data in the existing on-device Room database and preferences.
 - Disable Android cloud backup and device-to-device transfer for app data, with explicit exclusion rules for both paths.
 - Unrecognized input must fail with a clear message instead of silently sending a prompt to a cloud model.
+
+## Optional local Gemini Nano provider
+
+- Dependency: `com.google.mlkit:genai-prompt:1.0.0-beta4`.
+- The Settings screen includes an explicit runtime support probe. It reports available, download required, downloading, unsupported, unknown, or error; it does not start a model download.
+- `MlKitGeminiNanoClient` implements the existing `FinancialAiClient` interface, checks availability before inference, and returns a fail-closed error when the model is not ready. It closes the ML Kit model after the probe.
+- ML Kit Prompt API depends on Android AICore and device/model support. Do not infer support from Android version, brand, or RAM. Run the probe on the actual target device.
+- The ML Kit dependency is separate from Firebase SDKs. CI must continue to reject Firebase dependencies and references.
+
+## Separate online AI boundary
+
+Online AI is not enabled by this local-provider implementation. The app's manifest currently has no `INTERNET` permission, and there is no API-key storage or online provider in this branch. Do not add a cloud fallback to `MlKitGeminiNanoClient`. A later online-AI feature must be a separate provider with a separate user-controlled mode, explicit data-sharing confirmation, protected API-key storage, and tests proving that online requests are impossible while the mode is disabled. Enabling online AI would require a deliberate manifest/network-policy change and would weaken the current OS-level network boundary.
 
 ## Important distinction: offline app vs offline AI
 
