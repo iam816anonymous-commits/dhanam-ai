@@ -74,6 +74,20 @@ object GeminiService {
         return availability
     }
 
+    /**
+     * Download Gemini Nano only after an explicit user action. The provider becomes active only
+     * when the runtime confirms that the model is AVAILABLE after the download flow completes.
+     */
+    suspend fun downloadOnDeviceGeminiNano(): NanoAvailability {
+        val candidate = nanoClient ?: MlKitGeminiNanoClient().also { nanoClient = it }
+        val availability = candidate.downloadModel()
+        if (availability == NanoAvailability.Available) {
+            currentClient = candidate
+            activeModel = "gemini-nano-on-device"
+        }
+        return availability
+    }
+
     /** Return to deterministic local rules and release the optional on-device model client. */
     fun useLocalRulesOnly() {
         currentClient = DefaultFinancialAiClient()

@@ -814,6 +814,7 @@ fun AddExpenseDialog(
     var selectedPaymentMode by remember { mutableStateOf("UPI") }
     var notes by remember { mutableStateOf("") }
     var categoryExpanded by remember { mutableStateOf(false) }
+    var amountValidationError by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -827,12 +828,18 @@ fun AddExpenseDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = amountStr,
-                    onValueChange = { amountStr = it },
+                    onValueChange = {
+                        amountStr = it
+                        amountValidationError = null
+                    },
                     label = { Text(if (isTelugu) "మొత్తం (Amount ₹)" else "Amount (₹)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+                amountValidationError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
 
                 OutlinedTextField(
                     value = title,
@@ -912,12 +919,16 @@ fun AddExpenseDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val amt = amountStr.toDoubleOrNull() ?: 0.0
-                    if (amt > 0 && title.isNotBlank()) {
+                    val amt = amountStr.toDoubleOrNull()
+                    if (amt == null || !amt.isFinite() || amt <= 0.0) {
+                        amountValidationError = if (isTelugu) "సున్నా కంటే ఎక్కువ సరైన మొత్తాన్ని నమోదు చేయండి." else "Enter a valid amount greater than zero."
+                    } else if (title.isBlank()) {
+                        amountValidationError = if (isTelugu) "వివరణ నమోదు చేయండి." else "Enter a description."
+                    } else {
                         onConfirm(title, amt, selectedCategory, selectedPaymentMode, notes)
                     }
                 },
-                enabled = amountStr.isNotBlank() && title.isNotBlank()
+                enabled = true
             ) {
                 Text(if (isTelugu) "జోడించు" else "Save")
             }
@@ -944,6 +955,7 @@ fun EditExpenseDialog(
     var selectedPaymentMode by remember { mutableStateOf(expense.paymentMode.ifBlank { "UPI" }) }
     var notes by remember { mutableStateOf(expense.notes) }
     var categoryExpanded by remember { mutableStateOf(false) }
+    var amountValidationError by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -957,12 +969,18 @@ fun EditExpenseDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = amountStr,
-                    onValueChange = { amountStr = it },
+                    onValueChange = {
+                        amountStr = it
+                        amountValidationError = null
+                    },
                     label = { Text(if (isTelugu) "మొత్తం (Amount ₹)" else "Amount (₹)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+                amountValidationError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
 
                 OutlinedTextField(
                     value = title,
@@ -1042,8 +1060,12 @@ fun EditExpenseDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val amt = amountStr.toDoubleOrNull() ?: 0.0
-                    if (amt > 0 && title.isNotBlank()) {
+                    val amt = amountStr.toDoubleOrNull()
+                    if (amt == null || !amt.isFinite() || amt <= 0.0) {
+                        amountValidationError = if (isTelugu) "సున్నా కంటే ఎక్కువ సరైన మొత్తాన్ని నమోదు చేయండి." else "Enter a valid amount greater than zero."
+                    } else if (title.isBlank()) {
+                        amountValidationError = if (isTelugu) "వివరణ నమోదు చేయండి." else "Enter a description."
+                    } else {
                         val updated = expense.copy(
                             title = title,
                             amount = amt,
@@ -1054,7 +1076,7 @@ fun EditExpenseDialog(
                         onConfirm(updated)
                     }
                 },
-                enabled = amountStr.isNotBlank() && title.isNotBlank()
+                enabled = true
             ) {
                 Text(if (isTelugu) "అప్‌డేట్ చేయి" else "Update")
             }
@@ -1076,6 +1098,7 @@ fun SetCategoryBudgetDialog(
     onConfirm: (Double) -> Unit
 ) {
     var limitStr by remember { mutableStateOf("${currentLimit.toInt()}") }
+    var limitValidationError by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1106,9 +1129,14 @@ fun SetCategoryBudgetDialog(
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable {
-                                    val current = limitStr.toDoubleOrNull() ?: currentLimit
-                                    val next = (current + delta).coerceAtLeast(100.0)
-                                    limitStr = "${next.toInt()}"
+                                    val current = limitStr.toDoubleOrNull()
+                                    if (current == null || !current.isFinite() || current <= 0.0) {
+                                        limitValidationError = if (isTelugu) "ముందుగా సరైన పరిమితిని నమోదు చేయండి." else "Enter a valid limit before adjusting."
+                                    } else {
+                                        val next = (current + delta).coerceAtLeast(100.0)
+                                        limitStr = "${next.toInt()}"
+                                        limitValidationError = null
+                                    }
                                 }
                         ) {
                             Text(
@@ -1124,23 +1152,31 @@ fun SetCategoryBudgetDialog(
 
                 OutlinedTextField(
                     value = limitStr,
-                    onValueChange = { limitStr = it },
+                    onValueChange = {
+                        limitStr = it
+                        limitValidationError = null
+                    },
                     label = { Text(if (isTelugu) "నెలవారీ పరిమితి (Limit ₹)" else "Monthly Limit (₹)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+                limitValidationError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    val limit = limitStr.toDoubleOrNull() ?: 0.0
-                    if (limit > 0) {
+                    val limit = limitStr.toDoubleOrNull()
+                    if (limit == null || !limit.isFinite() || limit <= 0.0) {
+                        limitValidationError = if (isTelugu) "సున్నా కంటే ఎక్కువ సరైన పరిమితిని నమోదు చేయండి." else "Enter a valid limit greater than zero."
+                    } else {
                         onConfirm(limit)
                     }
                 },
-                enabled = limitStr.isNotBlank()
+                enabled = true
             ) {
                 Text(if (isTelugu) "సేవ్ చేయి" else "Save Limit")
             }

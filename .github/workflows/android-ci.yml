@@ -6,9 +6,10 @@ concurrency:
 
 on:
   push:
-    branches: [ "main", "jules/*", "fix/*" ]
+    branches: [ "**" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -46,6 +47,9 @@ jobs:
 
       - name: Run Unit Tests
         run: ./gradlew :app:testDebugUnitTest --no-configuration-cache
+
+      - name: Run managed-device UI smoke tests
+        run: ./gradlew :app:pixel6Api34DebugAndroidTest --no-configuration-cache
 
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-configuration-cache

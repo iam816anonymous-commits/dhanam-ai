@@ -3,6 +3,7 @@ package com.example.ui.viewmodel
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.room.withTransaction
@@ -10,6 +11,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.DhanamApplication
 import com.example.ai.AdaptiveBudgetEngine
 import com.example.ai.AgentFinancialBrain
+import com.example.ai.AgentSelfTestResult
+import com.example.ai.AgentSelfTestRunner
 import com.example.ai.AgentResult
 import com.example.ai.ExpenseAgentEngine
 import com.example.ai.ResultType
@@ -20,6 +23,7 @@ import com.example.data.model.ExpenseCategory
 import com.example.data.model.Loan
 import com.example.data.preferences.PreferenceManager
 import com.example.export.CsvReportGenerator
+import com.example.export.CsvExpenseImporter
 import com.example.export.PdfReportGenerator
 import com.example.voice.VoiceAgentManager
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +36,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -56,6 +61,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val voiceAgentManager = VoiceAgentManager(application)
 
     private val agentEngine = ExpenseAgentEngine(expenseDao, loanDao, budgetDao, preferenceManager, app.merchantCache, app.database)
+    private var pendingAgentDeletion: Expense? = null
 
     // User Preferences
     val themeMode: StateFlow<String> = preferenceManager.themeMode
@@ -499,12 +505,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setOverallMonthlyBudget(amount: Double) {
+        if (!amount.isFinite() || amount <= 0.0) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid overall budget")
+            return
+        }
         preferenceManager.setOverallBudget(amount)
         reallocateBudgetsAdaptively(amount)
         refreshMonthMetrics()
     }
 
     fun updateCategoryBudget(category: String, limit: Double) {
+        if (category.isBlank() || !limit.isFinite() || limit <= 0.0) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid category budget")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             budgetDao.insertOrUpdateBudget(CategoryBudget(category, limit))
             refreshMonthMetrics()
@@ -529,8 +543,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isThinking.value = false
             _isProcessingAgent.value = true
 
+            val pendingDeletion = pendingAgentDeletion
+            val confirmationText = processedInput.trim().lowercase(Locale.ROOT)
             val result = try {
-                agentEngine.processUserInput(processedInput, preferenceManager.getPreferredLanguage())
+                when {
+                    pendingDeletion != null && confirmationText in setOf(
+                        "cancel", "cancel delete", "no", "keep it", "రద్దు", "వద్దు"
+                    ) -> {
+                        pendingAgentDeletion = null
+                        AgentResult(
+                            success = true,
+                            type = ResultType.ACTION_COMPLETED,
+                            message = if (preferenceManager.getPreferredLanguage() == "te")
+                                "సరే, ఖర్చు అలాగే ఉంచాను." else "Cancelled. The expense was kept."
+                        )
+                    }
+                    pendingDeletion != null && confirmationText in setOf(
+                        "confirm delete", "confirm", "yes", "yes delete", "delete it", "అవును", "అవును తొలగించు"
+                    ) -> {
+                        expenseDao.deleteExpense(pendingDeletion)
+                        pendingAgentDeletion = null
+                        AgentResult(
+                            success = true,
+                            type = ResultType.ACTION_COMPLETED,
+                            message = if (preferenceManager.getPreferredLanguage() == "te")
+                                "'${pendingDeletion.title}' ఖర్చును తొలగించాను."
+                            else "Deleted expense '${pendingDeletion.title}' (₹${pendingDeletion.amount.toInt()})."
+                        )
+                    }
+                    pendingDeletion != null -> AgentResult(
+                        success = false,
+                        type = ResultType.CONFIRMATION_REQUIRED,
+                        message = if (preferenceManager.getPreferredLanguage() == "te")
+                            "తొలగింపును నిర్ధారించడానికి CONFIRM DELETE అని లేదా ఆపడానికి CANCEL అని చెప్పండి."
+                        else "A deletion is pending. Reply CONFIRM DELETE to proceed or CANCEL to keep the expense."
+                    )
+                    else -> agentEngine.processUserInput(processedInput, preferenceManager.getPreferredLanguage())
+                }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -549,6 +598,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 )
             }
+            if (result.confirmationRequired) {
+                pendingAgentDeletion = result.pendingDeletionExpense
+            }
+
             val agentResponse = AgentChatMessage(
                 isUser = false,
                 text = result.message,
@@ -826,9 +879,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         paymentMode: String,
         notes: String
     ) {
+        if (title.isBlank() || !amount.isFinite() || amount <= 0.0 ||
+            category.isBlank() || paymentMode.isBlank()
+        ) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid manual expense")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val exp = Expense(
-                title = title,
+                title = title.trim(),
                 amount = amount,
                 category = category,
                 paymentMode = paymentMode,
@@ -843,6 +902,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateExpense(expense: Expense) {
+        if (expense.title.isBlank() || !expense.amount.isFinite() || expense.amount <= 0.0 ||
+            expense.category.isBlank() || expense.paymentMode.isBlank()
+        ) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid expense update")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             expenseDao.updateExpense(expense)
             refreshMonthMetrics()
@@ -887,11 +952,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         notes: String,
         phoneNumber: String
     ) {
+        if (personName.isBlank() || !amount.isFinite() || amount <= 0.0 || dueDateDays !in 1..3650) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid manual loan")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val cal = Calendar.getInstance()
             cal.add(Calendar.DAY_OF_YEAR, dueDateDays)
             val loan = Loan(
-                personName = personName,
+                personName = personName.trim(),
                 amount = amount,
                 dueDateMillis = cal.timeInMillis,
                 notes = notes,
@@ -903,12 +972,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateLoan(loan: Loan) {
+        if (loan.personName.isBlank() || !loan.amount.isFinite() || loan.amount <= 0.0 ||
+            !loan.amountPaid.isFinite() || loan.amountPaid < 0.0 || loan.amountPaid > loan.amount
+        ) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid loan update")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             loanDao.updateLoan(loan)
         }
     }
 
     fun extendLoanDueDate(loan: Loan, additionalDays: Int) {
+        if (additionalDays <= 0 || additionalDays > 3650) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid loan due-date extension")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val baseTime = loan.dueDateMillis ?: System.currentTimeMillis()
             val cal = Calendar.getInstance().apply {
@@ -921,6 +1000,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun recordRepayment(loan: Loan, repaymentAmount: Double) {
+        val outstanding = loan.amount - loan.amountPaid
+        if (!repaymentAmount.isFinite() || repaymentAmount <= 0.0 ||
+            !outstanding.isFinite() || outstanding <= 0.0 || repaymentAmount > outstanding
+        ) {
+            com.example.util.AppLogger.w("MainViewModel", "Ignored invalid or excessive loan repayment")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val newPaid = loan.amountPaid + repaymentAmount
             val updated = loan.copy(
@@ -1014,6 +1100,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onResult(true, "PDF Generated successfully: ${pdfFile.name}")
             } else {
                 onResult(false, "Could not generate PDF report.")
+            }
+        }
+    }
+
+    /** Runs read-only diagnostics against routing, CSV parsing, spending analysis and Room queries. */
+    suspend fun runAgentSelfTest(): List<AgentSelfTestResult> =
+        AgentSelfTestRunner.run(app.database)
+
+    /**
+     * Imports only validated expense rows from a user-selected CSV. Existing transactions are
+     * preserved; duplicate rows are skipped using a stable transaction fingerprint.
+     */
+    fun importExpensesFromCsv(context: Context, uri: Uri, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val parsed = withContext(Dispatchers.IO) {
+                    val input = context.contentResolver.openInputStream(uri)
+                        ?: throw IllegalArgumentException("Could not open the selected CSV file.")
+                    input.bufferedReader(Charsets.UTF_8).use { reader -> CsvExpenseImporter.parse(reader) }
+                }
+                if (!parsed.headerFound) {
+                    onResult(false, parsed.issues.firstOrNull()?.reason ?: "This file does not contain a supported expense CSV table.")
+                    return@launch
+                }
+                if (parsed.expenses.isEmpty()) {
+                    val details = parsed.issues.firstOrNull()?.reason ?: "No valid expense rows were found."
+                    onResult(false, details)
+                    return@launch
+                }
+
+                var inserted = 0
+                var duplicates = 0
+                withContext(Dispatchers.IO) {
+                    app.database.withTransaction {
+                        val known = expenseDao.getAllExpenses()
+                            .map(CsvExpenseImporter::fingerprint)
+                            .toMutableSet()
+                        parsed.expenses.forEach { expense ->
+                            if (known.add(CsvExpenseImporter.fingerprint(expense))) {
+                                expenseDao.insertExpense(expense)
+                                inserted++
+                            } else {
+                                duplicates++
+                            }
+                        }
+                    }
+                }
+                refreshMonthMetrics()
+                val invalid = parsed.issues.size
+                val message = "Imported $inserted expense(s); skipped $duplicates duplicate(s) and $invalid invalid row(s)."
+                onResult(inserted > 0 || duplicates > 0, message)
+            } catch (error: Exception) {
+                com.example.util.AppLogger.e("MainViewModel", "Expense CSV import failed", error)
+                onResult(false, "Import failed. Check that the file is a valid Dhanam AI or transaction CSV and try again.")
             }
         }
     }

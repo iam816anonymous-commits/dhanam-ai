@@ -1,9 +1,10 @@
 package com.example.ai
 
-import com.google.mlkit.genai.prompt.FeatureStatus
+import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 
 /**
@@ -33,6 +34,22 @@ class MlKitGeminiNanoClient(
             )
     }
 
+    /**
+     * Starts a model download only when explicitly requested by the user and the runtime
+     * reports DOWNLOADABLE. It never invokes a cloud model or changes the active provider.
+     */
+    suspend fun downloadModel(): NanoAvailability = withContext(Dispatchers.IO) {
+        when (val status = probeAvailability()) {
+            NanoAvailability.DownloadRequired -> try {
+                model.download().collect { /* Keep collection active until the download flow completes. */ }
+                probeAvailability()
+            } catch (error: Exception) {
+                NanoAvailability.Error(error.message ?: "Gemini Nano model download failed")
+            }
+            else -> status
+        }
+    }
+
     override suspend fun generateContent(
         prompt: String,
         model: String
@@ -42,22 +59,21 @@ class MlKitGeminiNanoClient(
         }
 
         when (val availability = probeAvailability()) {
-            NanoAvailability.Available -> runCatching {
-                this@MlKitGeminiNanoClient.model.generateContent(prompt).text
-            }.fold(
-                onSuccess = { text ->
-                    if (text.isNullOrBlank()) {
-                        GeminiCallResult.ParseError("On-device model returned an empty response")
-                    } else {
-                        GeminiCallResult.Success(text)
-                    }
-                },
-                onFailure = {
-                    GeminiCallResult.NetworkError(
-                        "On-device Gemini Nano inference failed. No cloud fallback was attempted."
-                    )
+            NanoAvailability.Available -> try {
+                // ML Kit Prompt API exposes a suspend function, not a Google Play Task.
+                // Calling it directly preserves coroutine cancellation and gives a typed response.
+                val response = this@MlKitGeminiNanoClient.model.generateContent(prompt)
+                val generatedText = response.candidates.firstOrNull()?.text
+                if (generatedText.isNullOrBlank()) {
+                    GeminiCallResult.ParseError("On-device model returned an empty response")
+                } else {
+                    GeminiCallResult.Success(generatedText)
                 }
-            )
+            } catch (error: Exception) {
+                GeminiCallResult.NetworkError(
+                    "On-device Gemini Nano inference failed. No cloud fallback was attempted."
+                )
+            }
 
             NanoAvailability.DownloadRequired ->
                 GeminiCallResult.NetworkError(

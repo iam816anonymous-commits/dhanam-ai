@@ -664,6 +664,7 @@ fun AddLoanDialog(
     var dueDaysStr by remember { mutableStateOf("7") }
     var phoneNumber by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
+    var validationError by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -677,7 +678,10 @@ fun AddLoanDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = personName,
-                    onValueChange = { personName = it },
+                    onValueChange = {
+                        personName = it
+                        validationError = null
+                    },
                     label = { Text(if (isTelugu) "వ్యక్తి పేరు (Person Name)" else "Person Name") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -685,7 +689,10 @@ fun AddLoanDialog(
 
                 OutlinedTextField(
                     value = amountStr,
-                    onValueChange = { amountStr = it },
+                    onValueChange = {
+                        amountStr = it
+                        validationError = null
+                    },
                     label = { Text(if (isTelugu) "ఇచ్చిన మొత్తం (Amount ₹)" else "Amount (₹)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
@@ -694,7 +701,10 @@ fun AddLoanDialog(
 
                 OutlinedTextField(
                     value = dueDaysStr,
-                    onValueChange = { dueDaysStr = it },
+                    onValueChange = {
+                        dueDaysStr = it
+                        validationError = null
+                    },
                     label = { Text(if (isTelugu) "ఎన్ని రోజుల్లో తిరిగి ఇవ్వాలి? (Due in days)" else "Repayment Due in (Days)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
@@ -717,18 +727,24 @@ fun AddLoanDialog(
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 2
                 )
+                validationError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    val amt = amountStr.toDoubleOrNull() ?: 0.0
-                    val days = dueDaysStr.toIntOrNull() ?: 7
-                    if (amt > 0 && personName.isNotBlank()) {
-                        onConfirm(personName, amt, days, notes, phoneNumber)
+                    val amt = amountStr.toDoubleOrNull()
+                    val days = dueDaysStr.toIntOrNull()
+                    when {
+                        personName.isBlank() -> validationError = if (isTelugu) "వ్యక్తి పేరు నమోదు చేయండి." else "Enter the person's name."
+                        amt == null || !amt.isFinite() || amt <= 0.0 -> validationError = if (isTelugu) "సరైన మొత్తాన్ని నమోదు చేయండి." else "Enter a valid amount greater than zero."
+                        days == null || days !in 1..3650 -> validationError = if (isTelugu) "గడువు 1 నుండి 3650 రోజుల మధ్య ఉండాలి." else "Due days must be between 1 and 3650."
+                        else -> onConfirm(personName.trim(), amt, days, notes, phoneNumber)
                     }
                 },
-                enabled = personName.isNotBlank() && amountStr.isNotBlank()
+                enabled = true
             ) {
                 Text(if (isTelugu) "సేవ్ చేయి" else "Save")
             }
@@ -749,6 +765,7 @@ fun RecordPaymentDialog(
     onConfirm: (Double) -> Unit
 ) {
     var paymentAmtStr by remember { mutableStateOf("${loan.remainingAmount.toInt()}") }
+    var paymentValidationError by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -812,18 +829,26 @@ fun RecordPaymentDialog(
 
                 OutlinedTextField(
                     value = paymentAmtStr,
-                    onValueChange = { paymentAmtStr = it },
+                    onValueChange = {
+                        paymentAmtStr = it
+                        paymentValidationError = null
+                    },
                     label = { Text(if (isTelugu) "స్వీకరించిన మొత్తం (Amount Received ₹)" else "Received Amount (₹)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
+                paymentValidationError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    val amt = paymentAmtStr.toDoubleOrNull() ?: 0.0
-                    if (amt > 0) {
+                    val amt = paymentAmtStr.toDoubleOrNull()
+                    if (amt == null || !amt.isFinite() || amt <= 0.0 || amt > loan.remainingAmount) {
+                        paymentValidationError = if (isTelugu) "చెల్లింపు బాకీ మొత్తానికి మించి ఉండకూడదు." else "Enter a valid payment not exceeding the outstanding balance."
+                    } else {
                         onConfirm(amt)
                     }
                 }
@@ -851,6 +876,7 @@ fun EditLoanDialog(
     var phoneNumber by remember { mutableStateOf(loan.phoneNumber) }
     var notes by remember { mutableStateOf(loan.notes) }
     var additionalDaysStr by remember { mutableStateOf("0") }
+    var editValidationError by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -864,7 +890,10 @@ fun EditLoanDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = personName,
-                    onValueChange = { personName = it },
+                    onValueChange = {
+                        personName = it
+                        editValidationError = null
+                    },
                     label = { Text(if (isTelugu) "వ్యక్తి పేరు (Person Name)" else "Person Name") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -872,7 +901,10 @@ fun EditLoanDialog(
 
                 OutlinedTextField(
                     value = amountStr,
-                    onValueChange = { amountStr = it },
+                    onValueChange = {
+                        amountStr = it
+                        editValidationError = null
+                    },
                     label = { Text(if (isTelugu) "ఇచ్చిన మొత్తం (Total Amount ₹)" else "Total Amount (₹)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
@@ -890,7 +922,10 @@ fun EditLoanDialog(
 
                 OutlinedTextField(
                     value = additionalDaysStr,
-                    onValueChange = { additionalDaysStr = it },
+                    onValueChange = {
+                        additionalDaysStr = it
+                        editValidationError = null
+                    },
                     label = { Text(if (isTelugu) "గడువు పొడిగింపు (రోజులు - Extend Days)" else "Extend Due Date (Days)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
@@ -904,13 +939,28 @@ fun EditLoanDialog(
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 2
                 )
+                editValidationError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    val amt = amountStr.toDoubleOrNull() ?: loan.amount
-                    val extDays = additionalDaysStr.toIntOrNull() ?: 0
+                    val amt = amountStr.toDoubleOrNull()
+                    val extDays = additionalDaysStr.toIntOrNull()
+                    if (amt == null || !amt.isFinite() || amt <= 0.0 || amt < loan.amountPaid) {
+                        editValidationError = if (isTelugu) "మొత్తం ఇప్పటికే చెల్లించిన మొత్తానికి తక్కువగా ఉండకూడదు." else "Loan amount must be valid and not below the amount already repaid."
+                        return@Button
+                    }
+                    if (extDays == null || extDays !in 0..3650) {
+                        editValidationError = if (isTelugu) "గడువు పొడిగింపు 0 నుండి 3650 రోజుల మధ్య ఉండాలి." else "Due-date extension must be between 0 and 3650 days."
+                        return@Button
+                    }
+                    if (personName.isBlank()) {
+                        editValidationError = if (isTelugu) "వ్యక్తి పేరు నమోదు చేయండి." else "Enter the person's name."
+                        return@Button
+                    }
                     val newDueDate = if (extDays != 0) {
                         val base = loan.dueDateMillis ?: System.currentTimeMillis()
                         val cal = java.util.Calendar.getInstance().apply {
@@ -922,7 +972,7 @@ fun EditLoanDialog(
                         loan.dueDateMillis
                     }
 
-                    if (personName.isNotBlank() && amt > 0) {
+                    run {
                         val updated = loan.copy(
                             personName = personName,
                             amount = amt,
@@ -934,7 +984,7 @@ fun EditLoanDialog(
                         onConfirm(updated)
                     }
                 },
-                enabled = personName.isNotBlank() && amountStr.isNotBlank()
+                enabled = true
             ) {
                 Text(if (isTelugu) "అప్‌డేట్ చేయి" else "Update")
             }

@@ -7,20 +7,21 @@ import java.io.File
 class BackupRulesTest {
 
     @Test
-    fun testBackupRulesTargetCorrectDatabaseName() {
+    fun backupRulesExcludeAllAppFilesFromCloudBackup() {
         val backupRulesFile = File("src/main/res/xml/backup_rules.xml")
         assertTrue("backup_rules.xml should exist", backupRulesFile.exists())
-        val backupContent = backupRulesFile.readText()
-        assertTrue("backup_rules.xml must include dhanam_expense_database", backupContent.contains("dhanam_expense_database"))
-        assertTrue("backup_rules.xml must exclude dhanam_secure_pin.xml", backupContent.contains("dhanam_secure_pin.xml"))
+        val content = backupRulesFile.readText()
+        assertTrue("Backup must exclude the app root", content.contains("<exclude domain=\"root\" path=\".\""))
+        assertTrue("Sensitive PIN file must not be explicitly included", !content.contains("<include") && !content.contains("dhanam_secure_pin.xml"))
     }
 
     @Test
-    fun testDataExtractionRulesTargetCorrectDatabaseName() {
+    fun dataExtractionRulesExcludeCloudBackupAndDeviceTransfer() {
         val rulesFile = File("src/main/res/xml/data_extraction_rules.xml")
         assertTrue("data_extraction_rules.xml should exist", rulesFile.exists())
-        val rulesContent = rulesFile.readText()
-        assertTrue("data_extraction_rules.xml must include dhanam_expense_database", rulesContent.contains("dhanam_expense_database"))
-        assertTrue("data_extraction_rules.xml must exclude dhanam_secure_pin.xml", rulesContent.contains("dhanam_secure_pin.xml"))
+        val content = rulesFile.readText()
+        assertTrue("Cloud backup must exclude the app root", content.contains("<cloud-backup>") && content.contains("<exclude domain=\"root\" path=\".\""))
+        assertTrue("Device transfer must exclude the app root", content.contains("<device-transfer>") && content.contains("<exclude domain=\"root\" path=\".\""))
+        assertTrue("Sensitive PIN file must not be explicitly included", !content.contains("<include") && !content.contains("dhanam_secure_pin.xml"))
     }
 }

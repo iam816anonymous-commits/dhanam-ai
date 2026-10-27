@@ -32,7 +32,9 @@ data class AgentResult(
     val suggestions: List<String> = emptyList(),
     val spokenSummary: String? = null,
     val spokenSummaryTe: String? = null,
-    val spokenSummaryEn: String? = null
+    val spokenSummaryEn: String? = null,
+    val confirmationRequired: Boolean = false,
+    val pendingDeletionExpense: Expense? = null
 )
 
 enum class ResultType {
@@ -42,6 +44,8 @@ enum class ResultType {
     NAVIGATION_ACTION,
     INSIGHTS,
     OUT_OF_SCOPE,
+    CONFIRMATION_REQUIRED,
+    ACTION_COMPLETED,
     ERROR
 }
 
@@ -77,7 +81,13 @@ class ExpenseAgentEngine(
 
         val isTelugu = forceLanguage == "te" || containsTelugu(trimmed)
 
-        // 1. In-App Jarvis Operational & Navigation Commands
+        // Historical analysis takes precedence over the generic "history" navigation alias.
+        // It reads local Room records and never fabricates missing transactions.
+        if (isHistoricalAnalysisRequest(trimmed)) {
+            return handleHistoricalSpendingAnalysis(isTelugu)
+        }
+
+        // In-app navigation is resolved through the audited capability registry first.
         val navResult = checkInAppNavigationCommand(trimmed, isTelugu)
         if (navResult != null) {
             return navResult
@@ -101,23 +111,18 @@ class ExpenseAgentEngine(
         if (classifiedIntent == ConversationalFuzzyExtractor.DetectedIntent.UNDO_LAST) {
             val latestExpense = expenseDao.getLatestExpense()
             if (latestExpense != null) {
-                expenseDao.deleteExpense(latestExpense)
                 val msg = if (isTelugu) {
-                    "చివరిగా నమోదైన '${latestExpense.title}' (₹${latestExpense.amount.toInt()}) ఖర్చు రద్దు చేయబడింది."
+                    "చివరి ఖర్చు '${latestExpense.title}' (₹${latestExpense.amount.toInt()}) తొలగించబడుతుంది. కొనసాగించడానికి CONFIRM DELETE అని, ఆపడానికి CANCEL అని చెప్పండి."
                 } else {
-                    "Undid last transaction: removed '${latestExpense.title}' (₹${latestExpense.amount.toInt()})."
+                    "This will delete the latest expense '${latestExpense.title}' (₹${latestExpense.amount.toInt()}). Reply CONFIRM DELETE to proceed or CANCEL to keep it."
                 }
-                val spokenTe = "చివరి ఖర్చు రద్దు చేశాను."
-                val spokenEn = "Undid last expense."
                 return AgentResult(
                     success = true,
-                    type = ResultType.EXPENSE_RECORDED,
+                    type = ResultType.CONFIRMATION_REQUIRED,
                     message = msg,
-                    recordedExpenses = emptyList(),
-                    totalRecordedAmount = 0.0,
-                    spokenSummary = if (isTelugu) spokenTe else spokenEn,
-                    spokenSummaryTe = spokenTe,
-                    spokenSummaryEn = spokenEn
+                    confirmationRequired = true,
+                    pendingDeletionExpense = latestExpense,
+                    spokenSummary = msg
                 )
             } else {
                 val noExpMsg = if (isTelugu) "రద్దు చేయడానికి ఎలాంటి ఖర్చులు కనుగొనబడలేదు." else "No recent expense found to undo."
@@ -258,9 +263,21 @@ class ExpenseAgentEngine(
             return executeSingleItem(parsedItems[0], isTelugu)
         }
 
-        // All parsing and financial operations must remain on-device.
-        // Do not invoke a remote model when local parsing is uncertain.
-        // The user receives a concrete format example so they can rephrase safely.
+        // Optional on-device interpretation fallback. The model may classify a command,
+        // but it cannot invent the amount: require a locally detected amount and exact agreement.
+        // GeminiService is activated only after ML Kit confirms Gemini Nano is AVAILABLE.
+        if (parsedItems.isEmpty() &&
+            extractAmount(trimmed) > 0.0 &&
+            GeminiService.getActiveModel() == "gemini-nano-on-device"
+        ) {
+            val modelItem = interpretSingleFinancialCommandOnDevice(trimmed, isTelugu)
+            if (modelItem != null) {
+                return executeSingleItem(modelItem, isTelugu)
+            }
+        }
+
+        // Fail closed when local rules and the optional on-device interpreter cannot safely
+        // classify the request. No cloud fallback is permitted.
 
         // If amount couldn't be detected at all
         return AgentResult(
@@ -271,11 +288,123 @@ class ExpenseAgentEngine(
         )
     }
 
+    /**
+     * Uses Gemini Nano only as a constrained interpreter for an otherwise-unparsed, single
+     * financial command. Actual writes still go through executeSingleItem and Room DAO logic.
+     * The model's amount is discarded unless it matches the amount extracted locally.
+     */
+    private suspend fun interpretSingleFinancialCommandOnDevice(
+        input: String,
+        isTelugu: Boolean
+    ): ParsedItem? {
+        val localAmount = extractAmount(input)
+        if (!localAmount.isFinite() || localAmount <= 0.0) return null
+
+        val prompt = """
+            You are a strict command parser for a local personal-finance Android app.
+            Interpret the user's command and return exactly one JSON object, with no markdown:
+            {"type":"EXPENSE"|"LOAN_GIVEN"|"UNKNOWN","title":"...","amount":0.0,"category":"...","personName":"","dueDateDays":7,"paymentMode":"UPI"|"Cash"|"Card"|"NetBanking","notes":""}
+            Rules:
+            - Use only details explicitly present in the user's command. Never invent a person, amount, date, or transaction.
+            - The amount must be copied from the user's text. If the command is not clearly a single expense or a money-lent transaction, use UNKNOWN.
+            - For LOAN_GIVEN, personName must be explicitly present in the command.
+            - Keep title short and natural. Use Telugu for Telugu commands and English for English commands.
+            - category must be one of Food, Dining, Transport, Shopping, Bills, Entertainment, Health, Education, Other, Lending.
+            - paymentMode must be one of UPI, Cash, Card, NetBanking.
+            User language: ${if (isTelugu) "Telugu" else "English"}
+            User command: <command>$input</command>
+        """.trimIndent()
+
+        return try {
+            val result = GeminiService.callGeminiDetailed(prompt, "gemini-nano-on-device")
+            if (result !is GeminiCallResult.Success) return null
+            val jsonText = result.text
+                .substringAfter('{', "")
+                .let { "{" + it.substringBeforeLast('}', "") + "}" }
+            if (jsonText.length < 2) return null
+            val json = JSONObject(jsonText)
+            val type = json.optString("type").uppercase(Locale.ROOT)
+            if (type != "EXPENSE" && type != "LOAN_GIVEN") return null
+
+            val modelAmount = json.optDouble("amount", Double.NaN)
+            if (!modelAmount.isFinite() || kotlin.math.abs(modelAmount - localAmount) > 0.009) return null
+
+            val title = json.optString("title").trim().take(80)
+            if (title.isBlank()) return null
+
+            val personName = json.optString("personName").trim().take(80)
+            if (type == "LOAN_GIVEN") {
+                val lower = input.lowercase(Locale.ROOT)
+                val hasLendingLanguage = listOf(
+                    "lent", "loan", "borrow", "gave", "అప్పు", "ఇచ్చాను", "ఇచ్చా", "బాకీ"
+                ).any(lower::contains)
+                if (!hasLendingLanguage || personName.isBlank()) return null
+            }
+
+            val allowedCategories = setOf(
+                "Food", "Dining", "Transport", "Shopping", "Bills",
+                "Entertainment", "Health", "Education", "Other", "Lending"
+            )
+            val rawCategory = json.optString("category")
+            val category = allowedCategories.firstOrNull { it.equals(rawCategory, ignoreCase = true) }
+                ?: "Other"
+            val allowedPaymentModes = setOf("UPI", "Cash", "Card", "NetBanking")
+            val rawPayment = json.optString("paymentMode")
+            val paymentMode = allowedPaymentModes.firstOrNull { it.equals(rawPayment, ignoreCase = true) }
+                ?: "UPI"
+
+            ParsedItem(
+                type = type,
+                title = title,
+                amount = localAmount,
+                category = if (type == "LOAN_GIVEN") "Lending" else category,
+                personName = personName,
+                dueDateDays = json.optInt("dueDateDays", 7).coerceIn(1, 365),
+                paymentMode = paymentMode,
+                notes = json.optString("notes").take(300)
+            )
+        } catch (error: Exception) {
+            com.example.util.AppLogger.w(
+                "ExpenseAgentEngine",
+                "On-device interpretation failed; falling back to local rule response"
+            )
+            null
+        }
+    }
+
     private fun checkInAppNavigationCommand(input: String, isTelugu: Boolean): AgentResult? {
         val lower = input.lowercase(Locale.ROOT).trim()
 
         // Guard: If input contains a monetary amount, it is an expense or loan, NOT a pure navigation command!
         if (extractAmount(lower) > 0.0) return null
+
+        AgentCapabilityRegistry.resolveNavigation(lower)?.let { capability ->
+            val navigationAction = when (capability.screen) {
+                com.example.ui.navigation.Screen.AGENT -> "AGENT"
+                com.example.ui.navigation.Screen.EXPENSES -> "EXPENSES"
+                com.example.ui.navigation.Screen.KHATA -> "KHATA"
+                com.example.ui.navigation.Screen.INSIGHTS -> "INSIGHTS"
+                com.example.ui.navigation.Screen.SETTINGS -> "SETTINGS"
+            }
+            val message = if (isTelugu) {
+                when (capability.screen) {
+                    com.example.ui.navigation.Screen.AGENT -> "ఏజెంట్ హోమ్ స్క్రీన్‌కి మారుతున్నాను."
+                    com.example.ui.navigation.Screen.EXPENSES -> "ఖర్చుల స్క్రీన్‌కి మారుతున్నాను."
+                    com.example.ui.navigation.Screen.KHATA -> "అప్పుల ఖాతా స్క్రీన్‌కి మారుతున్నాను."
+                    com.example.ui.navigation.Screen.INSIGHTS -> "విశ్లేషణ స్క్రీన్‌కి మారుతున్నాను."
+                    com.example.ui.navigation.Screen.SETTINGS -> "సెట్టింగ్స్ స్క్రీన్‌కి మారుతున్నాను."
+                }
+            } else {
+                "Opening ${capability.screen.titleEn}."
+            }
+            return AgentResult(
+                success = true,
+                type = ResultType.NAVIGATION_ACTION,
+                message = message,
+                spokenSummary = message,
+                navigationAction = navigationAction
+            )
+        }
 
         // 1. Lending Khata Screen
         if (lower.contains("khata") || lower.contains("lending") || lower.contains("loan") ||
@@ -1157,6 +1286,54 @@ class ExpenseAgentEngine(
             spokenSummary = if (isTelugu) spokenTe else spokenEn,
             spokenSummaryTe = spokenTe,
             spokenSummaryEn = spokenEn
+        )
+    }
+
+    private fun isHistoricalAnalysisRequest(input: String): Boolean {
+        val normalized = input.lowercase(Locale.ROOT)
+        val explicitRequests = listOf(
+            "last year", "past year", "last 12 months", "past 12 months",
+            "spending profile", "expense history", "spending history",
+            "yearly spending", "annual spending", "analyze my expenses",
+            "analyse my expenses", "analyze my spending", "analyse my spending",
+            "analyze expenses", "analyse expenses", "12-month spending",
+            "గత సంవత్సరం", "గత ఏడాది ఖర్చులు", "గత 12 నెలలు",
+            "ఖర్చుల విశ్లేషణ", "నా ఖర్చులను విశ్లేషించు", "నా ఖర్చుల వివరాలు"
+        )
+        return explicitRequests.any(normalized::contains)
+    }
+
+    private suspend fun handleHistoricalSpendingAnalysis(isTelugu: Boolean): AgentResult {
+        val endMillis = System.currentTimeMillis()
+        val startCalendar = Calendar.getInstance().apply {
+            timeInMillis = endMillis
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            add(Calendar.MONTH, -11)
+        }
+        val expenses = expenseDao.getExpensesInRange(startCalendar.timeInMillis, endMillis)
+        val profile = SpendingProfileAnalyzer.analyze(
+            expenses = expenses,
+            startMillis = startCalendar.timeInMillis,
+            endMillis = endMillis,
+            calendarMonthCount = 12
+        )
+        val message = profile.toMessage(isTelugu)
+        val spokenSummary = if (isTelugu) {
+            "గత 12 నెలల ఖర్చుల విశ్లేషణ సిద్ధంగా ఉంది. మొత్తం ఖర్చు ${profile.totalSpent.toInt()} రూపాయలు."
+        } else {
+            "Your 12-month spending profile is ready. Total recorded spending is ${profile.totalSpent.toInt()} rupees."
+        }
+        return AgentResult(
+            success = true,
+            type = ResultType.INSIGHTS,
+            message = message,
+            spokenSummary = spokenSummary,
+            spokenSummaryTe = "గత 12 నెలల ఖర్చుల విశ్లేషణ సిద్ధంగా ఉంది.",
+            spokenSummaryEn = "Your 12-month spending profile is ready."
         )
     }
 

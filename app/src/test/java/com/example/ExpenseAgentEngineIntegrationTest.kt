@@ -109,9 +109,14 @@ class ExpenseAgentEngineIntegrationTest {
 
         val undoResult = engine.processUserInput("చివరి ఖర్చు రద్దు చేయి", forceLanguage = "te")
         assertTrue(undoResult.success)
+        assertEquals(ResultType.CONFIRMATION_REQUIRED, undoResult.type)
+        assertTrue(undoResult.confirmationRequired)
+        assertNotNull(undoResult.pendingDeletionExpense)
 
+        // The engine only requests confirmation; it must not delete records by itself.
         val expAfterUndo = db.expenseDao().getLatestExpense()
-        assertEquals(null, expAfterUndo)
+        assertNotNull(expAfterUndo)
+        assertEquals(exp1!!.id, expAfterUndo!!.id)
     }
 
     @Test

@@ -80,6 +80,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.example.ai.AgentSelfTestResult
 import com.example.ai.GeminiService
 import com.example.ai.MlKitGeminiNanoClient
 import com.example.ai.NanoAvailability
@@ -120,7 +121,21 @@ fun SettingsScreen(
     var categoryToEdit by remember { mutableStateOf<CategoryBudget?>(null) }
     var nanoProbeInProgress by remember { mutableStateOf(false) }
     var nanoAvailabilityMessage by remember { mutableStateOf<String?>(null) }
+    var nanoDownloadAvailable by remember { mutableStateOf(false) }
     val settingsScope = rememberCoroutineScope()
+    var csvImportMessage by remember { mutableStateOf<String?>(null) }
+    var selfTestRunning by remember { mutableStateOf(false) }
+    var selfTestResults by remember { mutableStateOf<List<AgentSelfTestResult>>(emptyList()) }
+    val csvImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.importExpensesFromCsv(context, uri) { _, message ->
+                csvImportMessage = message
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     // Dynamic Permission States
     var hasMicPermission by remember {
@@ -153,6 +168,119 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface
             )
+        }
+
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                modifier = Modifier.fillMaxWidth().testTag("csv_import_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = if (isTelugu) "పాత ఖర్చుల CSV దిగుమతి" else "Import expense history (CSV)",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = if (isTelugu)
+                            "Dhanam AI CSV లేదా Date, Title, Category, Amount ఉన్న CSV ఎంచుకోండి. చెల్లని వరుసలు తిరస్కరించబడతాయి; ఇప్పటికే ఉన్న లావాదేవీలు మళ్లీ దిగుమతి కావు."
+                        else
+                            "Choose a Dhanam AI export or a transaction CSV with Date, Title, Category and Amount. Invalid rows are skipped and matching existing transactions are not imported again.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    csvImportMessage?.let { message ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(message, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = {
+                            csvImportLauncher.launch(arrayOf("text/*", "application/csv", "application/vnd.ms-excel"))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (isTelugu) "CSV ఫైల్ ఎంచుకోండి" else "Choose CSV file")
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                modifier = Modifier.fillMaxWidth().testTag("agent_self_test_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = if (isTelugu) "ఏజెంట్ స్వీయ పరీక్ష" else "Agent self-test",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = if (isTelugu)
+                            "రూటింగ్, ఖర్చుల డేటాబేస్, ఖాతా, బడ్జెట్, CSV ధృవీకరణ మరియు ఖర్చుల విశ్లేషణను చదవడం-మాత్రమే పరీక్షిస్తుంది. మీ రికార్డులను మార్చదు."
+                        else
+                            "Runs read-only checks for screen routing, expense/Khata/budget database access, CSV validation and spending calculations. It does not edit or delete your records.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        enabled = !selfTestRunning,
+                        onClick = {
+                            settingsScope.launch {
+                                selfTestRunning = true
+                                selfTestResults = try {
+                                    viewModel.runAgentSelfTest()
+                                } catch (error: Exception) {
+                                    listOf(AgentSelfTestResult("Diagnostic runner", false, error.message ?: "Unexpected diagnostic error"))
+                                } finally {
+                                    selfTestRunning = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("run_agent_self_test")
+                    ) {
+                        Text(
+                            when {
+                                selfTestRunning -> if (isTelugu) "పరీక్షిస్తోంది…" else "Running diagnostics…"
+                                isTelugu -> "స్వీయ పరీక్ష ప్రారంభించండి"
+                                else -> "Run diagnostics"
+                            }
+                        )
+                    }
+                    if (selfTestResults.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "${selfTestResults.count { it.passed }} / ${selfTestResults.size} checks passed",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                        selfTestResults.forEach { result ->
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "${if (result.passed) "✓" else "✗"} ${result.name}: ${result.details}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (result.passed) SuccessGreen else AlertRed
+                            )
+                        }
+                        Text(
+                            text = if (isTelugu)
+                                "గమనిక: ఇవి కోర్ లాజిక్/డేటాబేస్ డయాగ్నస్టిక్స్ మాత్రమే; ప్రతి స్క్రీన్‌పై ప్రతి UI ట్యాప్‌ను ఇవి నిర్ధారించవు."
+                            else
+                                "Note: these are core-logic/database diagnostics, not a guarantee that every UI tap on every screen has been exercised.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
         }
 
         // Optional Gemini Nano runtime probe. It never starts a download.
@@ -190,9 +318,11 @@ fun SettingsScreen(
                                     "ML Kit could not be initialized on this device."
                                 } else {
                                     try {
-                                        when (val status = client.probeAvailability()) {
+                                        val status = client.probeAvailability()
+                                        nanoDownloadAvailable = status == NanoAvailability.DownloadRequired
+                                        when (status) {
                                             NanoAvailability.Available -> "Gemini Nano is available."
-                                            NanoAvailability.DownloadRequired -> "Model download is required. No download was started."
+                                            NanoAvailability.DownloadRequired -> "Model download is available. Use the Download button below to start it explicitly."
                                             NanoAvailability.Downloading -> "Model is currently preparing."
                                             NanoAvailability.Unsupported -> "Gemini Nano is not supported on this device."
                                             NanoAvailability.Unknown -> "Could not determine support status."
@@ -215,9 +345,11 @@ fun SettingsScreen(
                         onClick = {
                             settingsScope.launch {
                                 nanoProbeInProgress = true
-                                nanoAvailabilityMessage = when (val status = GeminiService.enableOnDeviceGeminiNano()) {
+                                val status = GeminiService.enableOnDeviceGeminiNano()
+                                nanoDownloadAvailable = status == NanoAvailability.DownloadRequired
+                                nanoAvailabilityMessage = when (status) {
                                     NanoAvailability.Available -> "Gemini Nano enabled for this session. Requests stay on-device."
-                                    NanoAvailability.DownloadRequired -> "Gemini Nano needs model setup. No download was started; local rules remain active."
+                                    NanoAvailability.DownloadRequired -> "Gemini Nano needs its on-device model. Download it explicitly below; local rules remain active until ready."
                                     NanoAvailability.Downloading -> "Gemini Nano is still preparing; local rules remain active."
                                     NanoAvailability.Unsupported -> "Gemini Nano is unsupported here; local rules remain active."
                                     NanoAvailability.Unknown -> "Support is unknown; local rules remain active."
@@ -229,9 +361,32 @@ fun SettingsScreen(
                     ) {
                         Text("Enable on-device AI for this session")
                     }
+                    Button(
+                        enabled = !nanoProbeInProgress && nanoDownloadAvailable,
+                        onClick = {
+                            settingsScope.launch {
+                                nanoProbeInProgress = true
+                                nanoAvailabilityMessage = "Downloading Gemini Nano to this device…"
+                                val status = GeminiService.downloadOnDeviceGeminiNano()
+                                nanoDownloadAvailable = status == NanoAvailability.DownloadRequired
+                                nanoAvailabilityMessage = when (status) {
+                                    NanoAvailability.Available -> "Gemini Nano downloaded and enabled for this session. Requests stay on-device."
+                                    NanoAvailability.DownloadRequired -> "The model is still not ready. Check device support and try again."
+                                    NanoAvailability.Downloading -> "Gemini Nano is still downloading. Check again when it finishes."
+                                    NanoAvailability.Unsupported -> "Gemini Nano is unsupported on this device; local rules remain active."
+                                    NanoAvailability.Unknown -> "Could not verify the model after download; local rules remain active."
+                                    is NanoAvailability.Error -> "Gemini Nano download failed: " + status.message
+                                }
+                                nanoProbeInProgress = false
+                            }
+                        }
+                    ) {
+                        Text(if (nanoProbeInProgress) "Preparing on-device model…" else "Download Gemini Nano model")
+                    }
                     OutlinedButton(
                         onClick = {
                             GeminiService.useLocalRulesOnly()
+                            nanoDownloadAvailable = false
                             nanoAvailabilityMessage = "Local rules only. No AI model requests are active."
                         }
                     ) {
@@ -1135,23 +1290,36 @@ fun SettingsScreen(
 
     if (showBudgetDialog) {
         var newBudgetStr by remember { mutableStateOf("${overallBudget.toInt()}") }
+        var budgetValidationError by remember { mutableStateOf<String?>(null) }
         AlertDialog(
             onDismissRequest = { showBudgetDialog = false },
             title = { Text(if (isTelugu) "మొత్తం బడ్జెట్ మార్చు" else "Edit Overall Monthly Budget") },
             text = {
-                OutlinedTextField(
-                    value = newBudgetStr,
-                    onValueChange = { newBudgetStr = it },
-                    label = { Text("Budget (₹)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column {
+                    OutlinedTextField(
+                        value = newBudgetStr,
+                        onValueChange = {
+                            newBudgetStr = it
+                            budgetValidationError = null
+                        },
+                        label = { Text("Budget (₹)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    budgetValidationError?.let {
+                        Text(it, color = AlertRed, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             },
             confirmButton = {
                 Button(onClick = {
-                    val amt = newBudgetStr.toDoubleOrNull() ?: 35000.0
-                    viewModel.setOverallMonthlyBudget(amt)
-                    showBudgetDialog = false
+                    val amt = newBudgetStr.toDoubleOrNull()
+                    if (amt == null || !amt.isFinite() || amt <= 0.0) {
+                        budgetValidationError = if (isTelugu) "సరైన సున్నా కంటే ఎక్కువ బడ్జెట్ నమోదు చేయండి." else "Enter a valid budget greater than zero."
+                    } else {
+                        viewModel.setOverallMonthlyBudget(amt)
+                        showBudgetDialog = false
+                    }
                 }) {
                     Text(if (isTelugu) "సేవ్" else "Save")
                 }
@@ -1166,23 +1334,36 @@ fun SettingsScreen(
 
     categoryToEdit?.let { budget ->
         var limitStr by remember { mutableStateOf("${budget.monthlyLimit.toInt()}") }
+        var limitValidationError by remember { mutableStateOf<String?>(null) }
         AlertDialog(
             onDismissRequest = { categoryToEdit = null },
             title = { Text(if (isTelugu) "${budget.category} బడ్జెట్ పరిమితి" else "Edit ${budget.category} Limit") },
             text = {
-                OutlinedTextField(
-                    value = limitStr,
-                    onValueChange = { limitStr = it },
-                    label = { Text("Limit (₹)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column {
+                    OutlinedTextField(
+                        value = limitStr,
+                        onValueChange = {
+                            limitStr = it
+                            limitValidationError = null
+                        },
+                        label = { Text("Limit (₹)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    limitValidationError?.let {
+                        Text(it, color = AlertRed, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             },
             confirmButton = {
                 Button(onClick = {
-                    val limit = limitStr.toDoubleOrNull() ?: 5000.0
-                    viewModel.updateCategoryBudget(budget.category, limit)
-                    categoryToEdit = null
+                    val limit = limitStr.toDoubleOrNull()
+                    if (limit == null || !limit.isFinite() || limit <= 0.0) {
+                        limitValidationError = if (isTelugu) "సరైన సున్నా కంటే ఎక్కువ పరిమితి నమోదు చేయండి." else "Enter a valid limit greater than zero."
+                    } else {
+                        viewModel.updateCategoryBudget(budget.category, limit)
+                        categoryToEdit = null
+                    }
                 }) {
                     Text(if (isTelugu) "సేవ్" else "Save")
                 }
