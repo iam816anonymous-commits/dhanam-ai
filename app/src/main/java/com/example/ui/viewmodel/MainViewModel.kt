@@ -55,7 +55,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val preferenceManager = app.preferenceManager
     val voiceAgentManager = VoiceAgentManager(application)
 
-    private val agentEngine = ExpenseAgentEngine(expenseDao, loanDao, budgetDao, preferenceManager, app.merchantCache)
+    private val agentEngine = ExpenseAgentEngine(expenseDao, loanDao, budgetDao, preferenceManager, app.merchantCache, app.database)
 
     // User Preferences
     val themeMode: StateFlow<String> = preferenceManager.themeMode
