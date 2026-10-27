@@ -58,6 +58,33 @@ jobs:
           KEY_ALIAS: ci-release
         run: ./gradlew :app:assembleRelease --no-configuration-cache
 
+      - name: Enforce offline-only privacy boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! grep -q 'android:allowBackup="false"' app/src/main/AndroidManifest.xml; then
+            echo "ERROR: Android app backup must be disabled for local-only financial data"
+            exit 1
+          fi
+          if ! grep -q '<exclude domain="root" path="."' app/src/main/res/xml/backup_rules.xml || ! grep -q '<exclude domain="root" path="."' app/src/main/res/xml/data_extraction_rules.xml; then
+            echo "ERROR: backup and device-transfer rules must exclude app data"
+            exit 1
+          fi
+          if grep -q 'android.permission.INTERNET' app/src/main/AndroidManifest.xml; then
+            echo "ERROR: INTERNET permission is forbidden in offline-only builds"
+            exit 1
+          fi
+          if grep -RniE 'com[.]google[.]firebase|FirebaseRemoteConfig|FirebaseAppCheck|Firebase[.]ai|libs[.]firebase|google-services' app/src/main app/build.gradle.kts build.gradle.kts gradle/libs.versions.toml; then
+            echo "ERROR: Firebase integration or dependency reference found"
+            exit 1
+          fi
+          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --no-configuration-cache > "$RUNNER_TEMP/release-dependencies.txt"
+          if grep -qi 'com[.]google[.]firebase:' "$RUNNER_TEMP/release-dependencies.txt"; then
+            echo "ERROR: Firebase artifact found in release runtime dependency graph"
+            exit 1
+          fi
+          echo "Offline-only source, manifest, and dependency checks passed"
+
       - name: Verify 16 KB APK alignment
         shell: bash
         run: |

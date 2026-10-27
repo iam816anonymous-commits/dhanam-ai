@@ -454,30 +454,18 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
     }
 
     private fun createSpeechRecognizerSafely(): SpeechRecognizer? {
-        // 1. Android 12+ (API 31+) on-device speech recognition
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
-                    return SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
-                }
-            } catch (_: Exception) {}
+        // Privacy mode: only the Android on-device recognizer is allowed. Never fall back to
+        // generic recognition services or a provider-specific cloud recognizer.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        return try {
+            if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
+                SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
         }
-        // 2. Standard system createSpeechRecognizer
-        try {
-            val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
-            if (recognizer != null) return recognizer
-        } catch (_: Exception) {}
-
-        // 3. Android 8 (API 26/27) & OEM fallback: Explicit Google Recognition Service Component
-        try {
-            val googleComponent = android.content.ComponentName(
-                "com.google.android.googlequicksearchbox",
-                "com.google.android.voicesearch.serviceapi.GoogleRecognitionService"
-            )
-            return SpeechRecognizer.createSpeechRecognizer(context, googleComponent)
-        } catch (_: Exception) {}
-
-        return null
     }
 
     private fun createRecognitionListener(): RecognitionListener {
@@ -508,19 +496,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
             }
 
             override fun onError(errorCode: Int) {
-                // Handle retry fallback for on-device recognition failures
-                if (!hasRetriedClientFallback && (errorCode == SpeechRecognizer.ERROR_CLIENT || errorCode == SpeechRecognizer.ERROR_SERVER)) {
-                    hasRetriedClientFallback = true
-                    try {
-                        speechRecognizer?.cancel()
-                        speechRecognizer?.destroy()
-                        speechRecognizer = createSpeechRecognizerSafely() ?: SpeechRecognizer.createSpeechRecognizer(context)
-                        speechRecognizer?.setRecognitionListener(this)
-                        startListeningInternal()
-                        return
-                    } catch (_: Exception) {}
-                }
-
+                // Do not retry with a generic recognizer: it may send audio off-device.
                 _isListening.value = false
                 releaseAudioFocus()
 
@@ -568,17 +544,7 @@ class VoiceAgentManager(private val context: Context) : TextToSpeech.OnInitListe
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
             AppLogger.e("VoiceAgentManager", "Failed startListeningInternal", e)
-            if (!hasRetriedClientFallback) {
-                hasRetriedClientFallback = true
-                try {
-                    speechRecognizer?.cancel()
-                    speechRecognizer?.destroy()
-                    speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
-                    speechRecognizer?.setRecognitionListener(createRecognitionListener())
-                    startListeningInternal()
-                    return
-                } catch (_: Exception) {}
-            }
+            // Fail closed. No generic or cloud recognizer fallback is allowed.
             _isListening.value = false
         }
     }

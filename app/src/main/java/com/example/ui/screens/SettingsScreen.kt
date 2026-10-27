@@ -65,6 +65,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,6 +80,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.example.ai.GeminiService
+import com.example.ai.MlKitGeminiNanoClient
+import com.example.ai.NanoAvailability
 import com.example.data.model.CategoryBudget
 import com.example.notifications.NotificationReminderManager
 import com.example.security.BiometricAuthManager
@@ -88,6 +92,7 @@ import com.example.ui.theme.AmberSecondaryLight
 import com.example.ui.theme.EmeraldPrimaryLight
 import com.example.ui.theme.SuccessGreen
 import com.example.ui.viewmodel.MainViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
@@ -103,7 +108,6 @@ fun SettingsScreen(
     val categoryBudgets by viewModel.categoryBudgets.collectAsState()
     val isVoiceEnabled by viewModel.voiceFeedbackEnabled.collectAsState()
     val appPin by viewModel.appPin.collectAsState()
-    val isCloudAiOptIn by viewModel.isCloudAiOptIn.collectAsState()
     val adaptivePlan by viewModel.adaptivePlan.collectAsState()
     val isTelugu = preferredLang == "te"
 
@@ -114,6 +118,9 @@ fun SettingsScreen(
     var showClearDataDialog by remember { mutableStateOf(false) }
     var showBatteryOptimizationDialog by remember { mutableStateOf(false) }
     var categoryToEdit by remember { mutableStateOf<CategoryBudget?>(null) }
+    var nanoProbeInProgress by remember { mutableStateOf(false) }
+    var nanoAvailabilityMessage by remember { mutableStateOf<String?>(null) }
+    val settingsScope = rememberCoroutineScope()
 
     // Dynamic Permission States
     var hasMicPermission by remember {
@@ -146,6 +153,92 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface
             )
+        }
+
+        // Optional Gemini Nano runtime probe. It never starts a download.
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "On-device AI (Gemini Nano)",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Checks runtime support on this device. It does not start a model download or send prompts to a cloud AI provider.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    nanoAvailabilityMessage?.let { message ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(message, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        enabled = !nanoProbeInProgress,
+                        onClick = {
+                            settingsScope.launch {
+                                nanoProbeInProgress = true
+                                val client = runCatching { MlKitGeminiNanoClient() }.getOrNull()
+                                nanoAvailabilityMessage = if (client == null) {
+                                    "ML Kit could not be initialized on this device."
+                                } else {
+                                    try {
+                                        when (val status = client.probeAvailability()) {
+                                            NanoAvailability.Available -> "Gemini Nano is available."
+                                            NanoAvailability.DownloadRequired -> "Model download is required. No download was started."
+                                            NanoAvailability.Downloading -> "Model is currently preparing."
+                                            NanoAvailability.Unsupported -> "Gemini Nano is not supported on this device."
+                                            NanoAvailability.Unknown -> "Could not determine support status."
+                                            is NanoAvailability.Error -> "Availability check failed: " + status.message
+                                        }
+                                    } finally {
+                                        client.close()
+                                    }
+                                }
+                                nanoProbeInProgress = false
+                            }
+                        }
+                    ) {
+                        Text(if (nanoProbeInProgress) "Checking…" else "Check on-device AI support")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        enabled = !nanoProbeInProgress,
+                        onClick = {
+                            settingsScope.launch {
+                                nanoProbeInProgress = true
+                                nanoAvailabilityMessage = when (val status = GeminiService.enableOnDeviceGeminiNano()) {
+                                    NanoAvailability.Available -> "Gemini Nano enabled for this session. Requests stay on-device."
+                                    NanoAvailability.DownloadRequired -> "Gemini Nano needs model setup. No download was started; local rules remain active."
+                                    NanoAvailability.Downloading -> "Gemini Nano is still preparing; local rules remain active."
+                                    NanoAvailability.Unsupported -> "Gemini Nano is unsupported here; local rules remain active."
+                                    NanoAvailability.Unknown -> "Support is unknown; local rules remain active."
+                                    is NanoAvailability.Error -> "Could not enable Gemini Nano: " + status.message
+                                }
+                                nanoProbeInProgress = false
+                            }
+                        }
+                    ) {
+                        Text("Enable on-device AI for this session")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            GeminiService.useLocalRulesOnly()
+                            nanoAvailabilityMessage = "Local rules only. No AI model requests are active."
+                        }
+                    ) {
+                        Text("Use local rules only")
+                    }
+                }
+            }
         }
 
         // 1. Accessibility: Dark Mode Toggle
@@ -618,62 +711,7 @@ fun SettingsScreen(
             }
         }
 
-        // Cloud AI Opt-In Toggle Card (Privacy & Transparency)
-        item {
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.secondaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Psychology,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = if (isTelugu) "క్లౌడ్ AI సహాయం (ఐచ్ఛికం)" else "Cloud AI Assistance (Optional)",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = if (isTelugu) "స్థానిక పార్సింగ్ విఫలమైనప్పుడు క్లౌడ్ AI (Gemini) ని ఉపయోగించండి. ఆఫ్‌లో ఉన్నప్పుడు మీ ఆర్థిక డేటా కేవలం మీ ఫోన్‌లోనే ఉంటుంది."
-                                else "Allow Gemini AI fallback when on-device parsing is uncertain. When off, data stays 100% on-device.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Switch(
-                        checked = isCloudAiOptIn,
-                        onCheckedChange = { viewModel.setCloudAiOptIn(it) },
-                        modifier = Modifier.testTag("cloud_ai_opt_in_switch")
-                    )
-                }
-            }
-        }
+        // Network AI is intentionally not offered: this app runs in offline-only privacy mode.
 
         // 4. Language Preference
         item {
