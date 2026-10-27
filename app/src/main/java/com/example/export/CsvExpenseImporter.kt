@@ -52,7 +52,9 @@ object CsvExpenseImporter {
 
         val expenses = mutableListOf<Expense>()
         val issues = mutableListOf<CsvExpenseImportIssue>()
-        records.drop(headerIndex + 1).forEachIndexed { offset, row ->
+        records.drop(headerIndex + 1)
+            .takeWhile { row -> row.firstOrNull()?.trim()?.startsWith("--- LENDING KHATA", ignoreCase = true) != true }
+            .forEachIndexed { offset, row ->
             val recordNumber = headerIndex + offset + 2
             if (row.all { it.isBlank() } || row.firstOrNull()?.trim()?.startsWith("---") == true) return@forEachIndexed
             if (row.size <= maxOf(dateIndex, titleIndex, amountIndex)) {
