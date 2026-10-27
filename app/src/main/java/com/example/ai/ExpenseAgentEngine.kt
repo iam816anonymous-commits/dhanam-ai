@@ -12,6 +12,7 @@ import com.example.data.model.Loan
 import com.example.data.preferences.PreferenceManager
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.CancellationException
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -233,7 +234,7 @@ class ExpenseAgentEngine(
 
         for (clause in itemClauses) {
             val fuzzyExtracted = ConversationalFuzzyExtractor.extractClause(clause, isTelugu)
-            if (fuzzyExtracted != null && fuzzyExtracted.amount > 0.0) {
+            if (fuzzyExtracted != null && fuzzyExtracted.amount.isFinite() && fuzzyExtracted.amount > 0.0) {
                 parsedItems.add(
                     ParsedItem(
                         type = if (fuzzyExtracted.isLoan) "LOAN_GIVEN" else "EXPENSE",
@@ -247,7 +248,7 @@ class ExpenseAgentEngine(
                 )
             } else {
                 val item = parseSingleItem(clause, isTelugu)
-                if (item != null && item.amount > 0.0) {
+                if (item != null && item.amount.isFinite() && item.amount > 0.0) {
                     parsedItems.add(item)
                 }
             }
@@ -303,14 +304,14 @@ class ExpenseAgentEngine(
         val prompt = """
             You are a strict command parser for a local personal-finance Android app.
             Interpret the user's command and return exactly one JSON object, with no markdown:
-            {"type":"EXPENSE"|"LOAN_GIVEN"|"UNKNOWN","title":"...","amount":0.0,"category":"...","personName":"","dueDateDays":7,"paymentMode":"UPI"|"Cash"|"Card"|"NetBanking","notes":""}
+            {"type":"EXPENSE"|"LOAN_GIVEN"|"UNKNOWN","title":"...","amount":0.0,"category":"...","personName":"","dueDateDays":7,"paymentMode":"UPI"|"Cash"|"Card"|"NetBanking"|"Unknown","notes":""}
             Rules:
             - Use only details explicitly present in the user's command. Never invent a person, amount, date, or transaction.
             - The amount must be copied from the user's text. If the command is not clearly a single expense or a money-lent transaction, use UNKNOWN.
             - For LOAN_GIVEN, personName must be explicitly present in the command.
             - Keep title short and natural. Use Telugu for Telugu commands and English for English commands.
             - category must be one of Food, Dining, Transport, Shopping, Bills, Entertainment, Health, Education, Other, Lending.
-            - paymentMode must be one of UPI, Cash, Card, NetBanking.
+            - paymentMode must be one of UPI, Cash, Card, NetBanking, Unknown. Use Unknown if the user did not specify it.
             User language: ${if (isTelugu) "Telugu" else "English"}
             User command: <command>$input</command>
         """.trimIndent()
@@ -336,22 +337,28 @@ class ExpenseAgentEngine(
             if (type == "LOAN_GIVEN") {
                 val lower = input.lowercase(Locale.ROOT)
                 val hasLendingLanguage = listOf(
-                    "lent", "loan", "borrow", "gave", "అప్పు", "ఇచ్చాను", "ఇచ్చా", "బాకీ"
+                    val inboundBorrowingLanguage = listOf(
+                    "borrowed from", "borrow from", "i borrowed", "took a loan",
+                    "take a loan", "got a loan", "అప్పు తీసుకున్న", "తీసుకున్నాను", "తీసుకున్నా"
                 ).any(lower::contains)
-                if (!hasLendingLanguage || personName.isBlank()) return null
+                val explicitLendingLanguage = listOf(
+                    "lent", "loaned", "gave", "loan given",
+                    "అప్పు ఇచ్చాను", "అప్పు ఇచ్చా", "ఇచ్చాను", "ఇచ్చా", "ఇచ్చాడు"
+                ).any(lower::contains)
+                if (!explicitLendingLanguage || inboundBorrowingLanguage || personName.isBlank()) return null
             }
 
             val allowedCategories = setOf(
                 "Food", "Dining", "Transport", "Shopping", "Bills",
-                "Entertainment", "Health", "Education", "Other", "Lending"
+                "Entertainment", "Health", "Education", "Other"
             )
             val rawCategory = json.optString("category")
             val category = allowedCategories.firstOrNull { it.equals(rawCategory, ignoreCase = true) }
                 ?: "Other"
-            val allowedPaymentModes = setOf("UPI", "Cash", "Card", "NetBanking")
+            val allowedPaymentModes = setOf("UPI", "Cash", "Card", "NetBanking", "Unknown")
             val rawPayment = json.optString("paymentMode")
             val paymentMode = allowedPaymentModes.firstOrNull { it.equals(rawPayment, ignoreCase = true) }
-                ?: "UPI"
+                ?: "Unknown"
 
             ParsedItem(
                 type = type,
@@ -363,6 +370,8 @@ class ExpenseAgentEngine(
                 paymentMode = paymentMode,
                 notes = json.optString("notes").take(300)
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Exception) {
             com.example.util.AppLogger.w(
                 "ExpenseAgentEngine",
