@@ -65,6 +65,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,6 +80,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.example.ai.MlKitGeminiNanoClient
+import com.example.ai.NanoAvailability
 import com.example.data.model.CategoryBudget
 import com.example.notifications.NotificationReminderManager
 import com.example.security.BiometricAuthManager
@@ -88,6 +91,7 @@ import com.example.ui.theme.AmberSecondaryLight
 import com.example.ui.theme.EmeraldPrimaryLight
 import com.example.ui.theme.SuccessGreen
 import com.example.ui.viewmodel.MainViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
@@ -113,6 +117,9 @@ fun SettingsScreen(
     var showClearDataDialog by remember { mutableStateOf(false) }
     var showBatteryOptimizationDialog by remember { mutableStateOf(false) }
     var categoryToEdit by remember { mutableStateOf<CategoryBudget?>(null) }
+    var nanoProbeInProgress by remember { mutableStateOf(false) }
+    var nanoAvailabilityMessage by remember { mutableStateOf<String?>(null) }
+    val settingsScope = rememberCoroutineScope()
 
     // Dynamic Permission States
     var hasMicPermission by remember {
@@ -145,6 +152,63 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface
             )
+        }
+
+        // Optional Gemini Nano runtime probe. It never starts a download.
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "On-device AI (Gemini Nano)",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Checks runtime support on this device. It does not start a model download or send prompts to a cloud AI provider.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    nanoAvailabilityMessage?.let { message ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(message, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        enabled = !nanoProbeInProgress,
+                        onClick = {
+                            settingsScope.launch {
+                                nanoProbeInProgress = true
+                                val client = runCatching { MlKitGeminiNanoClient() }.getOrNull()
+                                nanoAvailabilityMessage = if (client == null) {
+                                    "ML Kit could not be initialized on this device."
+                                } else {
+                                    try {
+                                        when (val status = client.probeAvailability()) {
+                                            NanoAvailability.Available -> "Gemini Nano is available."
+                                            NanoAvailability.DownloadRequired -> "Model download is required. No download was started."
+                                            NanoAvailability.Downloading -> "Model is currently preparing."
+                                            NanoAvailability.Unsupported -> "Gemini Nano is not supported on this device."
+                                            NanoAvailability.Unknown -> "Could not determine support status."
+                                            is NanoAvailability.Error -> "Availability check failed: " + status.message
+                                        }
+                                    } finally {
+                                        client.close()
+                                    }
+                                }
+                                nanoProbeInProgress = false
+                            }
+                        }
+                    ) {
+                        Text(if (nanoProbeInProgress) "Checking…" else "Check on-device AI support")
+                    }
+                }
+            }
         }
 
         // 1. Accessibility: Dark Mode Toggle
