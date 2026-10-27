@@ -13,7 +13,7 @@ Branch: `fix/financial-integrity-priority-1`
 
 - Source edits are committed to this feature branch.
 - Android compilation, unit tests, lint, and physical-device testing have **not** been run from this environment. Do not treat these changes as release-verified until CI and device checks pass.
-- Next priority is regression tests for preference migration, category budget warnings, expense/loan operations, batch transaction atomicity, and cloud AI opt-in behavior.
+- Next priority is regression tests for preference migration, category budget warnings, expense/loan operations, batch transaction rollback, and cloud AI opt-in behavior.
 
 ## Scope intentionally excluded
 
