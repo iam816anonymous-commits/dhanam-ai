@@ -80,6 +80,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.example.ai.AgentSelfTestResult
 import com.example.ai.GeminiService
 import com.example.ai.MlKitGeminiNanoClient
 import com.example.ai.NanoAvailability
@@ -122,6 +123,8 @@ fun SettingsScreen(
     var nanoAvailabilityMessage by remember { mutableStateOf<String?>(null) }
     val settingsScope = rememberCoroutineScope()
     var csvImportMessage by remember { mutableStateOf<String?>(null) }
+    var selfTestRunning by remember { mutableStateOf(false) }
+    var selfTestResults by remember { mutableStateOf<List<AgentSelfTestResult>>(emptyList()) }
     val csvImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -200,6 +203,80 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(if (isTelugu) "CSV ఫైల్ ఎంచుకోండి" else "Choose CSV file")
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                modifier = Modifier.fillMaxWidth().testTag("agent_self_test_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = if (isTelugu) "ఏజెంట్ స్వీయ పరీక్ష" else "Agent self-test",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = if (isTelugu)
+                            "రూటింగ్, ఖర్చుల డేటాబేస్, ఖాతా, బడ్జెట్, CSV ధృవీకరణ మరియు ఖర్చుల విశ్లేషణను చదవడం-మాత్రమే పరీక్షిస్తుంది. మీ రికార్డులను మార్చదు."
+                        else
+                            "Runs read-only checks for screen routing, expense/Khata/budget database access, CSV validation and spending calculations. It does not edit or delete your records.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        enabled = !selfTestRunning,
+                        onClick = {
+                            settingsScope.launch {
+                                selfTestRunning = true
+                                selfTestResults = try {
+                                    viewModel.runAgentSelfTest()
+                                } catch (error: Exception) {
+                                    listOf(AgentSelfTestResult("Diagnostic runner", false, error.message ?: "Unexpected diagnostic error"))
+                                } finally {
+                                    selfTestRunning = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("run_agent_self_test")
+                    ) {
+                        Text(
+                            when {
+                                selfTestRunning -> if (isTelugu) "పరీక్షిస్తోంది…" else "Running diagnostics…"
+                                isTelugu -> "స్వీయ పరీక్ష ప్రారంభించండి"
+                                else -> "Run diagnostics"
+                            }
+                        )
+                    }
+                    if (selfTestResults.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "${selfTestResults.count { it.passed }} / ${selfTestResults.size} checks passed",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                        selfTestResults.forEach { result ->
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "${if (result.passed) "✓" else "✗"} ${result.name}: ${result.details}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (result.passed) SuccessGreen else AlertRed
+                            )
+                        }
+                        Text(
+                            text = if (isTelugu)
+                                "గమనిక: ఇవి కోర్ లాజిక్/డేటాబేస్ డయాగ్నస్టిక్స్ మాత్రమే; ప్రతి స్క్రీన్‌పై ప్రతి UI ట్యాప్‌ను ఇవి నిర్ధారించవు."
+                            else
+                                "Note: these are core-logic/database diagnostics, not a guarantee that every UI tap on every screen has been exercised.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
