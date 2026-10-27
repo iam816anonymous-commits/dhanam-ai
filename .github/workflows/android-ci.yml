@@ -57,6 +57,20 @@ jobs:
       - name: Build Dhanam Next Debug APK
         run: ./gradlew -p nextgen :app:assembleDebug --no-configuration-cache
 
+      - name: Verify Dhanam Next APK was produced
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="nextgen/app/build/outputs/apk/debug/app-debug.apk"
+          if [ ! -s "$APK" ]; then
+            echo "ERROR: Dhanam Next assembleDebug completed but APK is missing or empty: $APK"
+            find nextgen/app/build/outputs -maxdepth 5 -type f -print 2>/dev/null || true
+            exit 1
+          fi
+          echo "Dhanam Next APK exists:"
+          stat -c '%n %s bytes' "$APK"
+          sha256sum "$APK"
+
       - name: Verify Dhanam Next offline privacy boundary
         shell: bash
         run: |
@@ -147,6 +161,26 @@ jobs:
           set -euo pipefail
           stat -c '%n %s bytes' app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release.apk
           sha256sum app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release.apk
+
+      # Publish the Next APK as a dedicated, easy-to-find download. The evidence
+      # bundle below is retained for reports and test output.
+      - name: Upload Dhanam AI Next Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dhanam-ai-next-debug-apk
+          path: nextgen/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload existing Dhanam AI APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: dhanam-ai-debug-and-release-apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload build and test evidence
         if: always()
