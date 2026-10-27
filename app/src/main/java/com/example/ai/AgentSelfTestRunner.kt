@@ -29,19 +29,19 @@ object AgentSelfTestRunner {
 
         check("Capability registry and destructive safeguards") {
             val errors = AgentCapabilityRegistry.validate()
-            check(errors.isEmpty()) { errors.joinToString("; ") }
+            kotlin.check(errors.isEmpty()) { errors.joinToString("; ") }
             "All screens mapped; destructive actions require confirmation."
         }
 
         check("Navigation alias resolution") {
             val navigation = AgentCapabilityRegistry.all.filter { it.action == AgentActionKind.NAVIGATION }
-            check(navigation.map { it.screen }.toSet() == Screen.entries.toSet()) {
+            kotlin.check(navigation.map { it.screen }.toSet() == Screen.entries.toSet()) {
                 "Navigation registry does not cover every screen."
             }
             navigation.forEach { capability ->
                 val alias = capability.aliases.firstOrNull()
                     ?: error("Missing navigation alias for ${capability.id}")
-                check(AgentCapabilityRegistry.resolveNavigation(alias)?.screen == capability.screen) {
+                kotlin.check(AgentCapabilityRegistry.resolveNavigation(alias)?.screen == capability.screen) {
                     "Alias '$alias' did not resolve to ${capability.screen.route}."
                 }
             }
@@ -71,10 +71,10 @@ object AgentSelfTestRunner {
             val parsed = CsvExpenseImporter.parse(
                 StringReader("Date,Time,Title,Category,Amount,Payment Mode,Notes\n27/10/2026,09:30 AM,Self-test,Other,1,UPI,diagnostic")
             )
-            check(parsed.headerFound && parsed.expenses.size == 1 && parsed.issues.isEmpty()) {
+            kotlin.check(parsed.headerFound && parsed.expenses.size == 1 && parsed.issues.isEmpty()) {
                 "Valid CSV smoke-test row was not parsed cleanly."
             }
-            check(CsvExpenseImporter.fingerprint(parsed.expenses.single()) ==
+            kotlin.check(CsvExpenseImporter.fingerprint(parsed.expenses.single()) ==
                 CsvExpenseImporter.fingerprint(parsed.expenses.single().copy(id = 42L))) {
                 "Duplicate fingerprint changed when the database id changed."
             }
@@ -88,7 +88,7 @@ object AgentSelfTestRunner {
                 Expense(title = "Self-test B", amount = 15.0, category = "Test", timestamp = now)
             )
             val profile = SpendingProfileAnalyzer.analyze(fixture, now - 1_000L, now + 1_000L, calendarMonthCount = 1)
-            check(profile.transactionCount == 2 && profile.totalSpent == 25.0) {
+            kotlin.check(profile.transactionCount == 2 && profile.totalSpent == 25.0) {
                 "Expected 2 transactions totalling 25.00; got ${profile.transactionCount} and ${profile.totalSpent}."
             }
             "Two local fixture rows aggregated to ₹25.00; no user data was modified."
