@@ -46,7 +46,7 @@ class MlKitGeminiNanoClient(
                 // ML Kit Prompt API exposes a suspend function, not a Google Play Task.
                 // Calling it directly preserves coroutine cancellation and gives a typed response.
                 val response = this@MlKitGeminiNanoClient.model.generateContent(prompt)
-                val generatedText = response.text
+                val generatedText = response.candidates.firstOrNull()?.text
                 if (generatedText.isNullOrBlank()) {
                     GeminiCallResult.ParseError("On-device model returned an empty response")
                 } else {
