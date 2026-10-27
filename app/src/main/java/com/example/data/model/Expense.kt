@@ -43,16 +43,16 @@ enum class ExpenseCategory(val displayNameEn: String, val displayNameTe: String,
             ) return true
 
             return when (category) {
-                FOOD -> normalized in setOf("food", "groceries", "grocery")
-                DINING -> normalized in setOf("dining", "snacks", "restaurant", "restaurants")
-                TRANSPORT -> normalized in setOf("transport", "fuel", "petrol", "travel")
-                SHOPPING -> normalized in setOf("shopping", "clothes", "clothing")
-                BILLS -> normalized in setOf("bills", "bill", "utilities", "utility")
-                ENTERTAINMENT -> normalized in setOf("entertainment", "movies", "movie")
-                HEALTH -> normalized in setOf("health", "medical", "medicine")
-                EDUCATION -> normalized in setOf("education", "fees", "fee")
-                LENDING -> normalized in setOf("lending", "money lent", "debt")
-                OTHER -> normalized in setOf("other", "uncategorized", "misc", "miscellaneous")
+                ExpenseCategory.FOOD -> normalized in setOf("food", "groceries", "grocery")
+                ExpenseCategory.DINING -> normalized in setOf("dining", "snacks", "restaurant", "restaurants")
+                ExpenseCategory.TRANSPORT -> normalized in setOf("transport", "fuel", "petrol", "travel")
+                ExpenseCategory.SHOPPING -> normalized in setOf("shopping", "clothes", "clothing")
+                ExpenseCategory.BILLS -> normalized in setOf("bills", "bill", "utilities", "utility")
+                ExpenseCategory.ENTERTAINMENT -> normalized in setOf("entertainment", "movies", "movie")
+                ExpenseCategory.HEALTH -> normalized in setOf("health", "medical", "medicine")
+                ExpenseCategory.EDUCATION -> normalized in setOf("education", "fees", "fee")
+                ExpenseCategory.LENDING -> normalized in setOf("lending", "money lent", "debt")
+                ExpenseCategory.OTHER -> normalized in setOf("other", "uncategorized", "misc", "miscellaneous")
             }
         }
 
