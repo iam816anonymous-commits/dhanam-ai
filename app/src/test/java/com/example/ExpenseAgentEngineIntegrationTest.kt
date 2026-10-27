@@ -135,6 +135,32 @@ class ExpenseAgentEngineIntegrationTest {
     }
 
     @Test
+    fun repaymentWithoutAmountDoesNotSilentlySettleTheWholeLoan() = runBlocking {
+        engine.processUserInput("రమేష్ కి 1000 ఇచ్చాను", forceLanguage = "te")
+
+        val result = engine.processUserInput("రమేష్ తిరిగి ఇచ్చాడు", forceLanguage = "te")
+
+        assertTrue(!result.success)
+        val loan = db.loanDao().getLatestPendingLoan()
+        assertNotNull(loan)
+        assertEquals(0.0, loan!!.amountPaid, 0.001)
+        assertEquals(1000.0, loan.remainingAmount, 0.001)
+    }
+
+    @Test
+    fun repaymentGreaterThanOutstandingBalanceIsRejected() = runBlocking {
+        engine.processUserInput("రమేష్ కి 1000 ఇచ్చాను", forceLanguage = "te")
+
+        val result = engine.processUserInput("రమేష్ 1500 తిరిగి ఇచ్చాడు", forceLanguage = "te")
+
+        assertTrue(!result.success)
+        val loan = db.loanDao().getLatestPendingLoan()
+        assertNotNull(loan)
+        assertEquals(0.0, loan!!.amountPaid, 0.001)
+        assertEquals(1000.0, loan.remainingAmount, 0.001)
+    }
+
+    @Test
     fun testPartialLoanRepaymentFlow() = runBlocking {
         // Step 1: Lend 1000 to Suresh
         val lendResult = engine.processUserInput("సురేష్ కి 1000 అప్పు ఇచ్చాను", forceLanguage = "te")
