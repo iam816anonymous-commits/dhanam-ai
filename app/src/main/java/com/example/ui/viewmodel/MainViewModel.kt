@@ -227,7 +227,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
-        AgentFinancialBrain.calculateLocalFinancialHealth(0.0, 35000.0, emptyList(), emptyList(), emptyList())
+        AgentFinancialBrain.calculateLocalFinancialHealth(0.0, preferenceManager.getOverallBudget(), emptyList(), emptyList(), emptyList())
     )
 
     private val _currentMonthTimestamp = MutableStateFlow(System.currentTimeMillis())
