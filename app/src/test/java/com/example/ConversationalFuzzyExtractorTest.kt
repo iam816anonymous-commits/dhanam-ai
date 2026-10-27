@@ -73,6 +73,8 @@ class ConversationalFuzzyExtractorTest {
         assertEquals("UPI", ConversationalFuzzyExtractor.detectPaymentMode("paid using UPI"))
         assertEquals("Cash", ConversationalFuzzyExtractor.detectPaymentMode("paid with cash"))
         assertEquals("Card", ConversationalFuzzyExtractor.detectPaymentMode("paid with debit card"))
+        assertEquals("Unknown", ConversationalFuzzyExtractor.detectPaymentMode("paid at bank"))
+        assertEquals("NetBanking", ConversationalFuzzyExtractor.detectPaymentMode("paid by bank transfer"))
     }
 
     @Test
