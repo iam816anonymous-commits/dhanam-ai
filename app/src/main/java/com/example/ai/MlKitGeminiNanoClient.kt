@@ -42,22 +42,18 @@ class MlKitGeminiNanoClient(
         }
 
         when (val availability = probeAvailability()) {
-            NanoAvailability.Available -> runCatching {
-                this@MlKitGeminiNanoClient.model.generateContent(prompt).text
-            }.fold(
-                onSuccess = { text ->
-                    if (text.isNullOrBlank()) {
-                        GeminiCallResult.ParseError("On-device model returned an empty response")
-                    } else {
-                        GeminiCallResult.Success(text)
-                    }
-                },
-                onFailure = {
-                    GeminiCallResult.NetworkError(
-                        "On-device Gemini Nano inference failed. No cloud fallback was attempted."
-                    )
+            NanoAvailability.Available -> try {
+                val generatedText = this@MlKitGeminiNanoClient.model.generateContent(prompt).text
+                if (generatedText.isNullOrBlank()) {
+                    GeminiCallResult.ParseError("On-device model returned an empty response")
+                } else {
+                    GeminiCallResult.Success(generatedText)
                 }
-            )
+            } catch (error: Exception) {
+                GeminiCallResult.NetworkError(
+                    "On-device Gemini Nano inference failed. No cloud fallback was attempted."
+                )
+            }
 
             NanoAvailability.DownloadRequired ->
                 GeminiCallResult.NetworkError(
