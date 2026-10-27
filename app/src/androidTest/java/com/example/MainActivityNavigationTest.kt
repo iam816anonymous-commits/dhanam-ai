@@ -53,6 +53,9 @@ class MainActivityNavigationTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Import expense history (CSV)").assertExists()
         composeRule.onNodeWithText("Agent self-test").assertExists()
+        composeRule.onNodeWithText("Check on-device AI support").assertExists()
+        composeRule.onNodeWithText("Download Gemini Nano model").assertExists()
+        composeRule.onNodeWithText("Use local rules only").assertExists()
     }
 
     @Test
