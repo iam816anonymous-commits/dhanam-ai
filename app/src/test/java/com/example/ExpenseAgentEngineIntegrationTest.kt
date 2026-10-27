@@ -212,6 +212,27 @@ class ExpenseAgentEngineIntegrationTest {
     }
 
     @Test
+    fun correctionDoesNotModifyAnUnrelatedCategoryWhenNoMatchExists() = runBlocking {
+        db.expenseDao().insertExpense(
+            Expense(
+                title = "Groceries",
+                amount = 50.0,
+                category = "Food",
+                timestamp = System.currentTimeMillis()
+            )
+        )
+
+        val result = engine.processUserInput("change previous Transport expense to 100", forceLanguage = "en")
+
+        assertTrue(!result.success)
+        assertTrue(result.message.contains("Nothing was changed"))
+        val latest = db.expenseDao().getLatestExpense()
+        assertNotNull(latest)
+        assertEquals("Groceries", latest!!.title)
+        assertEquals(50.0, latest.amount, 0.001)
+    }
+
+    @Test
     fun testSetMonthlyBudgetCommand() = runBlocking {
         val result = engine.processUserInput("నెల బడ్జెట్ 45000 గా పెట్టు", forceLanguage = "te")
         assertTrue(result.success)
