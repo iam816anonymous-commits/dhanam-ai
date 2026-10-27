@@ -10,6 +10,7 @@ Dhanam AI must not send financial records, prompts, transcripts, contact names, 
 - Remove android.permission.INTERNET and ACCESS_NETWORK_STATE from the application manifest. The app process therefore has no ordinary Android network permission.
 - Replace the cloud Gemini implementation with a fail-closed offline placeholder. It does not attempt a network request. Existing deterministic intent and expense parsers continue to handle supported commands.
 - Keep financial data in the existing on-device Room database and preferences.
+- Disable Android cloud backup and device-to-device transfer for app data, with explicit exclusion rules for both paths.
 - Unrecognized input must fail with a clear message instead of silently sending a prompt to a cloud model.
 
 ## Important distinction: offline app vs offline AI
@@ -34,7 +35,7 @@ The current assistant is not yet a general-purpose offline LLM. Its supported co
 - Run unit/integration tests with airplane mode enabled for expense, loan, budget, export, navigation, and insights flows.
 - Inspect voice flow and ensure no external recognizer intent is launched in privacy mode.
 - Test a release APK on the target physical device with packet capture/router monitoring as an additional defense-in-depth check; this does not replace code and dependency review.
-- Confirm backups and exports are local, user-initiated, and documented.
+- Verify Android backup and device-transfer are disabled and backup rules exclude app data; review user-initiated exports separately.
 
 ## Explicit limitations
 
