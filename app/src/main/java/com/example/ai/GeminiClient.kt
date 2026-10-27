@@ -55,6 +55,10 @@ object GeminiService {
     @Volatile
     private var activeModel: String = DEFAULT_MODEL
 
+    private val providerLock = Any()
+    @Volatile
+    private var providerGeneration: Long = 0L
+
     fun getActiveModel(): String = activeModel
 
     /**
@@ -62,14 +66,24 @@ object GeminiService {
      * No model download and no cloud fallback are initiated here.
      */
     suspend fun enableOnDeviceGeminiNano(): NanoAvailability {
-        val candidate = nanoClient ?: MlKitGeminiNanoClient().also { nanoClient = it }
+        val (candidate, requestGeneration) = synchronized(providerLock) {
+            providerGeneration += 1
+            val client = nanoClient ?: MlKitGeminiNanoClient().also { nanoClient = it }
+            client to providerGeneration
+        }
         val availability = candidate.probeAvailability()
-        if (availability == NanoAvailability.Available) {
-            currentClient = candidate
-            activeModel = "gemini-nano-on-device"
-        } else if (currentClient === candidate) {
-            currentClient = DefaultFinancialAiClient()
-            activeModel = DEFAULT_MODEL
+        synchronized(providerLock) {
+            // A later explicit choice (especially "Use local rules only") wins over stale async work.
+            if (providerGeneration != requestGeneration || nanoClient !== candidate) {
+                return NanoAvailability.Unknown
+            }
+            if (availability == NanoAvailability.Available) {
+                currentClient = candidate
+                activeModel = "gemini-nano-on-device"
+            } else if (currentClient === candidate) {
+                currentClient = DefaultFinancialAiClient()
+                activeModel = DEFAULT_MODEL
+            }
         }
         return availability
     }
@@ -79,21 +93,35 @@ object GeminiService {
      * when the runtime confirms that the model is AVAILABLE after the download flow completes.
      */
     suspend fun downloadOnDeviceGeminiNano(): NanoAvailability {
-        val candidate = nanoClient ?: MlKitGeminiNanoClient().also { nanoClient = it }
+        val (candidate, requestGeneration) = synchronized(providerLock) {
+            providerGeneration += 1
+            val client = nanoClient ?: MlKitGeminiNanoClient().also { nanoClient = it }
+            client to providerGeneration
+        }
         val availability = candidate.downloadModel()
-        if (availability == NanoAvailability.Available) {
-            currentClient = candidate
-            activeModel = "gemini-nano-on-device"
+        synchronized(providerLock) {
+            if (providerGeneration != requestGeneration || nanoClient !== candidate) {
+                return NanoAvailability.Unknown
+            }
+            if (availability == NanoAvailability.Available) {
+                currentClient = candidate
+                activeModel = "gemini-nano-on-device"
+            }
         }
         return availability
     }
 
     /** Return to deterministic local rules and release the optional on-device model client. */
     fun useLocalRulesOnly() {
-        currentClient = DefaultFinancialAiClient()
-        activeModel = DEFAULT_MODEL
-        nanoClient?.close()
-        nanoClient = null
+        val previous = synchronized(providerLock) {
+            providerGeneration += 1
+            currentClient = DefaultFinancialAiClient()
+            activeModel = DEFAULT_MODEL
+            nanoClient.also { nanoClient = null }
+        }
+        // Close outside the lock; an in-flight availability/download result cannot reactivate it
+        // because its generation token is now stale.
+        previous?.close()
     }
 
     fun validateModelName(model: String): String = DEFAULT_MODEL
