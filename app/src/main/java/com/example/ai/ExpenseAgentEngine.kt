@@ -57,7 +57,7 @@ data class ParsedItem(
     val category: String,
     val personName: String = "",
     val dueDateDays: Int = 7,
-    val paymentMode: String = "UPI",
+    val paymentMode: String = "Unknown",
     val notes: String = ""
 )
 
@@ -661,7 +661,7 @@ class ExpenseAgentEngine(
                 category = ExpenseCategory.LENDING.displayNameEn,
                 personName = person,
                 dueDateDays = dueDays,
-                paymentMode = if (lower.contains("cash") || lower.contains("నగదు")) "Cash" else "UPI",
+                paymentMode = ConversationalFuzzyExtractor.detectPaymentMode(text),
                 notes = text
             )
         }
@@ -669,13 +669,13 @@ class ExpenseAgentEngine(
         val cachedMerchant = merchantCache?.resolveMerchant(lower)
         val category = cachedMerchant?.first ?: determineCategory(lower)
         val title = extractTitle(text, category, isTelugu)
-        val paymentMode = when {
-            lower.contains("cash") || lower.contains("నగదు") -> "Cash"
-            lower.contains("card") || lower.contains("కార్డ్") -> "Card"
-            lower.contains("netbanking") || lower.contains("బ్యాంక్") -> "NetBanking"
-            cachedMerchant != null -> cachedMerchant.second
-            else -> "UPI"
-        }
+        val paymentMode = if (cachedMerchant != null &&
+            !lower.contains("cash") && !lower.contains("నగదు") &&
+            !lower.contains("card") && !lower.contains("కార్డ్") &&
+            !lower.contains("netbanking") && !lower.contains("బ్యాంక్") &&
+            !lower.contains("upi") && !lower.contains("gpay") &&
+            !lower.contains("google pay") && !lower.contains("phonepe") && !lower.contains("paytm")
+        ) cachedMerchant.second else ConversationalFuzzyExtractor.detectPaymentMode(text)
 
         return ParsedItem(
             type = "EXPENSE",
