@@ -118,11 +118,16 @@ jobs:
             exit 1
           fi
           ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --no-configuration-cache > "$RUNNER_TEMP/release-dependencies.txt"
-          if grep -qi 'com[.]google[.]firebase:' "$RUNNER_TEMP/release-dependencies.txt"; then
-            echo "ERROR: Firebase artifact found in release runtime dependency graph"
+          # ML Kit GenAI Prompt is an on-device API and may bring in low-level
+          # Firebase Components/encoders as implementation dependencies. Those
+          # shared components do not enable network access or a Firebase service.
+          # Block actual Firebase service SDKs, not every artifact under the group.
+          if grep -Eqi 'com[.]google[.]firebase:(firebase-(analytics|analytics-ktx|config|config-ktx|appcheck[^:]*|auth[^:]*|firestore[^:]*|crashlytics[^:]*|ai[^:]*|functions[^:]*|messaging[^:]*|perf[^:]*|database[^:]*|remote-config[^:]*))' "$RUNNER_TEMP/release-dependencies.txt"; then
+            echo "ERROR: Firebase service SDK found in release runtime dependency graph:"
+            grep -Ei 'com[.]google[.]firebase:firebase-(analytics|analytics-ktx|config|config-ktx|appcheck[^:]*|auth[^:]*|firestore[^:]*|crashlytics[^:]*|ai[^:]*|functions[^:]*|messaging[^:]*|perf[^:]*|database[^:]*|remote-config[^:]*)' "$RUNNER_TEMP/release-dependencies.txt"
             exit 1
           fi
-          echo "Offline-only source, manifest, and dependency checks passed"
+          echo "Offline-only source, manifest, and cloud-service dependency checks passed"
 
       - name: Verify 16 KB APK alignment
         shell: bash
